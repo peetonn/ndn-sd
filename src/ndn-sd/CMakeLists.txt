@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.10)
 set(LIBRARY_NAME ndn-sd)
 project(${LIBRARY_NAME} VERSION 1.0.0)
 
-file(GLOB SOURCES "*.cpp")
+
+set(SOURCES ndn-sd.cpp)
 add_library(${LIBRARY_NAME} STATIC ${SOURCES})
 
 target_include_directories(${LIBRARY_NAME}
@@ -14,7 +15,7 @@ target_include_directories(${LIBRARY_NAME}
                         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../include>
                         $<INSTALL_INTERFACE:include>
                     )
-target_include_directories(${LIBRARY_NAME} PRIVATE SYSTEM
+target_include_directories(${LIBRARY_NAME} PUBLIC SYSTEM
                         ${CMAKE_CURRENT_SOURCE_DIR}/../../thirdparty/ndn-ind/include
                     )
 target_compile_features(${LIBRARY_NAME} PUBLIC cxx_std_17)

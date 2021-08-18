@@ -1,0 +1,3 @@
+[submodule "thirdparty/ndn-ind"]
+	path = thirdparty/ndn-ind
+	url = https://github.com/operantnetworks/ndn-ind
