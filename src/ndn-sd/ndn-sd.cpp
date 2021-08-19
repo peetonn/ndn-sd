@@ -1,8 +1,13 @@
 
 #include "ndn-sd.hpp"
 #include <ndn-ind/interest.hpp>
+#include "dns_sd.h"
 
-std::string getVersionString()
+namespace ndnsd
 {
-    return "x.x.x";
+	std::string getVersionString()
+	{
+		return "x.x.x";
+	}
 }
+
