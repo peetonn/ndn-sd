@@ -27,3 +27,7 @@ target_link_libraries (${LIBRARY_NAME} ${BONJOUR_LIBRARY})
 find_package(ndn-ind REQUIRED)
 target_include_directories(${LIBRARY_NAME} SYSTEM PUBLIC ${NDNIND_INCLUDE_DIRS})
 target_link_libraries(${LIBRARY_NAME} ${NDNIND_LIBRARIES})
+
+if(WIN32)
+  target_link_libraries(${LIBRARY_NAME} wsock32 ws2_32)
+endif()
