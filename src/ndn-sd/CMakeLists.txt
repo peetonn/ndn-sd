@@ -15,9 +15,15 @@ target_include_directories(${LIBRARY_NAME}
                         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../include>
                         $<INSTALL_INTERFACE:include>
                     )
-target_include_directories(${LIBRARY_NAME} PUBLIC SYSTEM
-                        ${CMAKE_CURRENT_SOURCE_DIR}/../../thirdparty/ndn-ind/include
-                    )
+
 target_compile_features(${LIBRARY_NAME} PUBLIC cxx_std_17)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/config.hpp)
+
+find_package(Bonjour REQUIRED)
+target_include_directories(${LIBRARY_NAME} PRIVATE ${BONJOUR_INCLUDE_DIR})
+target_link_libraries (${LIBRARY_NAME} ${BONJOUR_LIBRARY})
+
+find_package(ndn-ind REQUIRED)
+target_include_directories(${LIBRARY_NAME} SYSTEM PUBLIC ${NDNIND_INCLUDE_DIRS})
+target_link_libraries(${LIBRARY_NAME} ${NDNIND_LIBRARIES})
