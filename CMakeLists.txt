@@ -9,3 +9,4 @@ include(CheckIncludeFiles)
 
 add_subdirectory(src/ndn-sd)
 add_subdirectory(src/mfdexample)
+add_subdirectory(test)
