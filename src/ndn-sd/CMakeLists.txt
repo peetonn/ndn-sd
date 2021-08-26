@@ -4,7 +4,8 @@ set(LIBRARY_NAME ndn-sd)
 project(${LIBRARY_NAME} VERSION 1.0.0)
 
 
-set(SOURCES ndn-sd.cpp)
+set(SOURCES ndn-sd.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/../../include/${LIBRARY_NAME}/ndn-sd.hpp)
 add_library(${LIBRARY_NAME} STATIC ${SOURCES})
 
 target_include_directories(${LIBRARY_NAME}

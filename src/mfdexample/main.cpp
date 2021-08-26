@@ -92,7 +92,7 @@ void signal_handler(int signal)
 int main (int argc, char **argv)
 {
 	
-	cout << "NDN-SD version " << ndnsd::getVersionString() << endl;
+	cout << "NDN-SD version " << ndnsd::NdnSd::getVersion() << endl;
 
 	{ // register
 		uint16_t txtBufLen = 512;
