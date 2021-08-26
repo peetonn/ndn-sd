@@ -41,7 +41,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
         auto srvRef = dnsRegisterHelper("_udp", "", "test-udp-srv-uuid", 45312,
             "/test/prefix");
 
-        WHEN("NdnSd instance browse for NDN services over UDP") {
+        WHEN("NdnSd instance browse for NDN/UDP services") {
             
             shared_ptr<const NdnSd> discoveredSd;
             int nDiscovered = 0;
@@ -59,19 +59,32 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
                 REQUIRE(discovered->getCertificate().size() == 0);
                 REQUIRE(discovered->getPrefix().size() == 0);
                 REQUIRE(discovered->getPort() == 0);
-                REQUIRE(discovered->getDomain() == "local.");
+                REQUIRE(discovered->getDomain().size() > 0);
 
                 /*sd.resolve(discoveredSd,
                     [](shared_ptr<const NdnSd> sd, void*)
                 {
 
                 }, ndnSdErrorCb);*/
-            }, ndnSdErrorCb);
+            }, ndnSdErrorCb, kDNSServiceInterfaceIndexLocalOnly);
 
             THEN("service is discovered") {
                 sd.run(1000);
                 REQUIRE(nDiscovered > 0);
                 REQUIRE(discoveredSd);
+            }
+        }
+        WHEN("NdnSd instance browse for NDN/TCP services") {
+
+            NdnSd sd("test-uuid1");
+            sd.browse(ndnsd::Proto::TCP,
+                [&](shared_ptr<const NdnSd> discovered, void*)
+            {
+                FAIL("service should not be discovered");
+            }, ndnSdErrorCb, kDNSServiceInterfaceIndexLocalOnly);
+
+            THEN("service is NOT discovered") {
+                sd.run(1000);
             }
         }
 
@@ -104,7 +117,7 @@ DNSServiceRef* dnsRegisterHelper(string protocol, string subtype, string uuid,
     string regtype = "_ndn." + protocol;
     if (subtype.size()) regtype += "," + subtype;
 
-    auto err = DNSServiceRegister(dnsServiceRef, 0, 0, uuid.c_str(), regtype.c_str(),
+    auto err = DNSServiceRegister(dnsServiceRef, 0, kDNSServiceInterfaceIndexLocalOnly, uuid.c_str(), regtype.c_str(),
         nullptr, nullptr, htons(port),
         TXTRecordGetLength(&txtRecRef), TXTRecordGetBytesPtr(&txtRecRef),
         &dnsRegisterReplyHelper, nullptr);
