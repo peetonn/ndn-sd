@@ -4,6 +4,7 @@
 #include <ndn-ind/interest.hpp>
 #include <map>
 #include <time.h>
+#include <cassert>
 
 #ifdef _WIN32
 #include <process.h>
@@ -32,31 +33,44 @@ namespace ndnsd
 		Published
 	};
 
-	struct NdnSd::Impl : enable_shared_from_this<NdnSd::Impl> {
+	struct NdnSd::Impl : enable_shared_from_this<NdnSd::Impl> 
+	{
+		typedef struct _BrowseRequest {
+			int id_ = -1;
+			DNSServiceRef serviceRef_;
+			shared_ptr<Impl> pimpl_;
+			BrowseConstraints constraints_;
+			vector<shared_ptr<NdnSd>> discovered_;
+			OnBrowseError onError_;
+			OnDiscoveredService onDiscovered_;
+		} BrowseRequest;
+
 		Impl(std::string uuid) {
 			uuid_ = uuid; 
 			state_ = ServiceState::Created;
 		}
 		~Impl(){ /*TODO: cleanup*/ }
 
-		OnResolvedService onDiscoveredServiceCb_, onResolvedServiceCb_;
-		OnError onBrowseErrorCb_;
-		void* browseUserData_;
-		
-		int interafceIdx_;
+		OnResolvedService onResolvedServiceCb_;
 
 		ServiceState state_;
 		string uuid_;
-		string domain_;
-		Parameters parameters_;
+		AdvertiseParameters parameters_;
+
+		// all browse requests
+		map<int, shared_ptr<BrowseRequest>> brequests_;
 
 		// store discovered-only services (not resolved yet)
-		vector<shared_ptr<NdnSd>> discovered_;
+		//vector<shared_ptr<NdnSd>> discovered_;
 		// store resolved services
-		vector<shared_ptr<NdnSd>> resolved_;
+		//vector<shared_ptr<NdnSd>> resolved_;
 
 		// TODO:see if this should be static
 		map<int, DNSServiceRef> fdServiceRefMap_;
+
+		// helpers
+		void addRefToRunLoop(DNSServiceRef ref);
+		void removeRefFromRunloop(DNSServiceRef ref);
 
 		// DNS-SD callbacks
 		static void browseReply(
@@ -90,7 +104,7 @@ namespace ndnsd
 	};
 
 	// helpers
-	string makeRegType(Proto p);
+	string makeRegType(Proto p, string subtype = "");
 	Proto parseProtocol(string regtype);
 	string dnsSdErrorMessage(DNSServiceErrorType errorCode);
 }
@@ -105,7 +119,15 @@ NdnSd::NdnSd(string uuid)
 
 NdnSd::~NdnSd()
 {
-
+	// cancel all requests
+	for (auto it = pimpl_->brequests_.cbegin(), nextIt = it;
+		it != pimpl_->brequests_.cend(); it = nextIt)
+	{
+		++nextIt;
+		pimpl_->removeRefFromRunloop(it->second->serviceRef_);
+		DNSServiceRefDeallocate(it->second->serviceRef_);
+		pimpl_->brequests_.erase(it);
+	}
 }
 
 int NdnSd::run(uint32_t timeoutMs)
@@ -157,25 +179,27 @@ int NdnSd::run(uint32_t timeoutMs)
 	return 0;
 }
 
-void NdnSd::advertise(const NdnSd::Parameters& parameters)
+void NdnSd::advertise(const AdvertiseParameters& parameters)
 {
 
 }
 
-void NdnSd::browse(Proto protocol, OnDiscoveredService onDiscoveredServiceCb, 
-	OnError onBrowseErrorCb, uint32_t iface, const char* domain, 
-	void *userData)
+int NdnSd::browse(BrowseConstraints constraints, OnDiscoveredService onDiscoveredServiceCb,
+	OnError onBrowseErrorCb)
 {
 	DNSServiceRef ref;
+	shared_ptr<Impl::BrowseRequest> br = make_shared<Impl::BrowseRequest>();
 	
-	auto res = DNSServiceBrowse(&ref, 0, iface, makeRegType(protocol).c_str(), domain,
-		&NdnSd::Impl::browseReply, pimpl_.get());
+	auto res = DNSServiceBrowse(&ref, 0, constraints.interfaceIdx_, 
+		makeRegType(constraints.protocol_, constraints.subtype_).c_str(), 
+		(constraints.domain_.size() ? constraints.domain_.c_str() : nullptr),
+		&NdnSd::Impl::browseReply, br.get());
 
 	if (res != kDNSServiceErr_NoError)
 	{
 		try
 		{
-			onBrowseErrorCb(res, dnsSdErrorMessage(res), true, userData);
+			onBrowseErrorCb(-1, res, dnsSdErrorMessage(res), true, constraints.userData_);
 		}
 		catch (std::runtime_error& e)
 		{
@@ -184,9 +208,39 @@ void NdnSd::browse(Proto protocol, OnDiscoveredService onDiscoveredServiceCb,
 	}
 	else
 	{
-		pimpl_->onDiscoveredServiceCb_ = onDiscoveredServiceCb;
-		pimpl_->browseUserData_ = userData;
-		pimpl_->fdServiceRefMap_[DNSServiceRefSockFD(ref)] = ref;
+		int brId = (pimpl_->brequests_.size() ? pimpl_->brequests_.rbegin()->first + 1 : 1);
+		assert(pimpl_->brequests_.find(brId) == pimpl_->brequests_.end());
+
+		br->pimpl_ = pimpl_;
+		br->id_ = brId;
+		br->serviceRef_ = ref;
+		br->constraints_ = constraints;
+		br->onDiscovered_ = onDiscoveredServiceCb;
+		br->onError_ = onBrowseErrorCb;
+
+		pimpl_->brequests_[brId] = br;
+		pimpl_->addRefToRunLoop(ref);
+
+		return brId;
+	}
+
+	return -1;
+}
+
+void NdnSd::cancel(int requestId)
+{
+	auto it = pimpl_->brequests_.find(requestId);
+
+	if (it != pimpl_->brequests_.end())
+	{
+		// 1. remove fd from runloop
+		pimpl_->removeRefFromRunloop(it->second->serviceRef_);
+
+		// 2. deallocate dns service ref
+		DNSServiceRefDeallocate(it->second->serviceRef_);
+
+		// 3. remove request from the request dict
+		pimpl_->brequests_.erase(it);
 	}
 }
 
@@ -197,7 +251,7 @@ void NdnSd::resolve(shared_ptr<const NdnSd> sd,
 
 }
 
-std::string NdnSd::getUuid() const
+string NdnSd::getUuid() const
 {
 	return pimpl_->uuid_;
 }
@@ -205,6 +259,11 @@ std::string NdnSd::getUuid() const
 ndnsd::Proto NdnSd::getProtocol() const
 {
 	return pimpl_->parameters_.protocol_;
+}
+
+int NdnSd::getInterface() const
+{
+	return pimpl_->parameters_.interfaceIdx_;
 }
 
 uint16_t NdnSd::getPort() const
@@ -215,7 +274,12 @@ uint16_t NdnSd::getPort() const
 	return 0;
 }
 
-std::string NdnSd::getPrefix() const
+string NdnSd::getSubtype() const 
+{
+	return pimpl_->parameters_.subtype_;
+}
+
+string NdnSd::getPrefix() const
 {
 	if (pimpl_->state_ == ServiceState::Published ||
 		pimpl_->state_ == ServiceState::Resolved)
@@ -223,7 +287,7 @@ std::string NdnSd::getPrefix() const
 	return "";
 }
 
-std::string NdnSd::getCertificate() const
+string NdnSd::getCertificate() const
 {
 	if (pimpl_->state_ == ServiceState::Published ||
 		pimpl_->state_ == ServiceState::Resolved)
@@ -231,21 +295,33 @@ std::string NdnSd::getCertificate() const
 	return "";
 }
 
-std::string NdnSd::getDomain() const
+string NdnSd::getDomain() const
 {
 	if (pimpl_->state_ > ServiceState::Created)
-		return pimpl_->domain_;
+		return pimpl_->parameters_.domain_;
 	return "";
 }
 
-int NdnSd::getInterface() const 
-{
-	return pimpl_->interafceIdx_;
-}
-
-std::string NdnSd::getVersion()
+string NdnSd::getVersion()
 {
 	return "x.x.x";
+}
+
+// Impl helpers
+void NdnSd::Impl::addRefToRunLoop(DNSServiceRef ref)
+{
+	// TODO: do mutex access here
+	fdServiceRefMap_[DNSServiceRefSockFD(ref)] = ref;
+}
+
+void NdnSd::Impl::removeRefFromRunloop(DNSServiceRef ref)
+{
+	auto it = fdServiceRefMap_.find(DNSServiceRefSockFD(ref));
+	if (it != fdServiceRefMap_.end())
+	{
+		// TODO: do mutex access here
+		fdServiceRefMap_.erase(it);
+	}
 }
 
 // DNS-SD callbacks
@@ -259,38 +335,41 @@ void NdnSd::Impl::browseReply(
 	const char* replyDomain,
 	void* context)
 {
-	NdnSd::Impl* browser = static_cast<NdnSd::Impl*>(context);
+	BrowseRequest* br = static_cast<BrowseRequest*>(context);
 
-	if (!browser)
+	if (!br)
 	{
-		cerr << "DNSServiceRef has no NdnSd owner" << endl;
+		cerr << "DNSServiceRef has no BrowseRequest owner" << endl;
 		return;
 	}
 		
 	if (errorCode == kDNSServiceErr_NoError)
 	{
-		cout << "ADD " << serviceName << " " << regtype << " " << replyDomain << endl;
 		// TODO: 
 		// 1. check it's not our own
 		// 2. check if more coming and postpone callback
 		// 
-
-		if (browser->uuid_ != serviceName)
+		cout << "ADD " << serviceName << " " << regtype << endl;
+		
+		if (br->pimpl_->uuid_ != serviceName)
 		{
+			// TODO: wrap in a method
 			shared_ptr<NdnSd> sd = make_shared<NdnSd>(serviceName);
-			sd->pimpl_->interafceIdx_ = interfaceIndex;
-			sd->pimpl_->domain_ = replyDomain;
 			sd->pimpl_->parameters_.protocol_ = parseProtocol(regtype);
-			sd->pimpl_->state_ = ServiceState::Discovered;
+			sd->pimpl_->parameters_.domain_ = replyDomain;
+			sd->pimpl_->parameters_.interfaceIdx_ = interfaceIndex;
+			sd->pimpl_->parameters_.subtype_ = br->constraints_.subtype_;
+			sd->pimpl_->parameters_.userData_ = br->constraints_.userData_;
 
-			browser->discovered_.push_back(sd);
-			browser->onDiscoveredServiceCb_(sd, browser->browseUserData_);
+			sd->pimpl_->state_ = ServiceState::Discovered;
+			br->discovered_.push_back(sd);
+			br->onDiscovered_(br->id_, sd, br->constraints_.userData_);
 		}
 	}
 	else
 	{
-		browser->onBrowseErrorCb_(errorCode, dnsSdErrorMessage(errorCode), true,
-			browser->browseUserData_);
+		br->onError_(br->id_, errorCode, dnsSdErrorMessage(errorCode), true, 
+			br->constraints_.userData_);
 	}
 }
 
@@ -322,18 +401,23 @@ void NdnSd::Impl::registerReply(
 }
 
 //*** helpers
-string ndnsd::makeRegType(Proto p)
+string ndnsd::makeRegType(Proto p, string subtype)
 {
+	string regtype;
 	switch (p)
 	{
 	case ndnsd::Proto::UDP:
-		return kNdnDnsServiceType + "._udp";
-	case ndnsd::Proto::TCP:
+		regtype = kNdnDnsServiceType + "._udp";
+		break;
+	case ndnsd::Proto::TCP: // fallthrough
 	default:
-		return kNdnDnsServiceType + "._tcp";
+		regtype = kNdnDnsServiceType + "._tcp";
 	}
 
-	return "";
+	if (subtype.size())
+		regtype += "," + subtype;
+
+	return regtype;
 }
 
 ndnsd::Proto ndnsd::parseProtocol(string regtype)

@@ -32,13 +32,13 @@ TEST_CASE( "NDN-SD construction", "[ndnsd]" ) {
 
 TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
-    auto ndnSdErrorCb = [](int errCode, string msg, bool, void*) {
+    auto ndnSdErrorCb = [](int reqId, int errCode, string msg, bool, void*) {
         FAIL("error occurred: " << errCode << " " << msg);
     };
 
     GIVEN("advertised NDN service over UDP") {
 
-        auto srvRef = dnsRegisterHelper("_udp", "", "test-udp-srv-uuid", 45312,
+        auto srvRef = dnsRegisterHelper("_udp", "", "test-udp-uuid", 45312,
             "/test/prefix");
 
         WHEN("NdnSd instance browse for NDN/UDP services") {
@@ -47,41 +47,37 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             int nDiscovered = 0;
 
             NdnSd sd("test-uuid1");
-            sd.browse(ndnsd::Proto::UDP,
-                [&](shared_ptr<const NdnSd> discovered, void*) 
+            sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int, shared_ptr<const NdnSd> discovered, void*) 
             {
                 nDiscovered += 1;
                 discoveredSd = discovered;
 
-                REQUIRE(discovered->getUuid() == "test-udp-srv-uuid");
+                REQUIRE(discovered->getUuid() == "test-udp-uuid");
                 REQUIRE(discovered->getProtocol() == Proto::UDP);
+                REQUIRE(discovered->getDomain().size() > 0);
 
+                REQUIRE(discovered->getSubtype().size() == 0);
                 REQUIRE(discovered->getCertificate().size() == 0);
                 REQUIRE(discovered->getPrefix().size() == 0);
                 REQUIRE(discovered->getPort() == 0);
-                REQUIRE(discovered->getDomain().size() > 0);
 
-                /*sd.resolve(discoveredSd,
-                    [](shared_ptr<const NdnSd> sd, void*)
-                {
-
-                }, ndnSdErrorCb);*/
-            }, ndnSdErrorCb, kDNSServiceInterfaceIndexLocalOnly);
+            }, ndnSdErrorCb);
 
             THEN("service is discovered") {
                 sd.run(1000);
-                REQUIRE(nDiscovered > 0);
+                REQUIRE(nDiscovered == 1);
                 REQUIRE(discoveredSd);
             }
         }
         WHEN("NdnSd instance browse for NDN/TCP services") {
 
             NdnSd sd("test-uuid1");
-            sd.browse(ndnsd::Proto::TCP,
-                [&](shared_ptr<const NdnSd> discovered, void*)
+            sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
             {
                 FAIL("service should not be discovered");
-            }, ndnSdErrorCb, kDNSServiceInterfaceIndexLocalOnly);
+            }, ndnSdErrorCb);
 
             THEN("service is NOT discovered") {
                 sd.run(1000);
@@ -89,6 +85,209 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
         }
 
         dnsServiceCleanupHelper(srvRef);
+    }
+
+    GIVEN("advertised NDN service over TCP") {
+
+        auto srvRef = dnsRegisterHelper("_tcp", "", "test-tcp-uuid", 45312,
+            "/test/prefix");
+
+        WHEN("NdnSd instance browse for NDN/TCP services") {
+
+            shared_ptr<const NdnSd> discoveredSd;
+            int nDiscovered = 0;
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                nDiscovered += 1;
+                discoveredSd = discovered;
+
+                REQUIRE(discovered->getUuid() == "test-tcp-uuid");
+                REQUIRE(discovered->getProtocol() == Proto::TCP);
+                REQUIRE(discovered->getDomain().size() > 0);
+
+                REQUIRE(discovered->getSubtype().size() == 0);
+                REQUIRE(discovered->getCertificate().size() == 0);
+                REQUIRE(discovered->getPrefix().size() == 0);
+                REQUIRE(discovered->getPort() == 0);
+
+            }, ndnSdErrorCb);
+
+            THEN("service is discovered") {
+                sd.run(1000);
+                REQUIRE(nDiscovered == 1);
+                REQUIRE(discoveredSd);
+            }
+        }
+        WHEN("NdnSd instance browse for NDN/UDP services") {
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                FAIL("service should not be discovered");
+            }, ndnSdErrorCb);
+
+            THEN("service is NOT discovered") {
+                sd.run(1000);
+            }
+        }
+
+        dnsServiceCleanupHelper(srvRef);
+    }
+
+    GIVEN("advertised NDN service with subtype \""+ ndnsd::kNdnDnsServiceSubtypeMFD +"\"") {
+
+        auto srvRef = dnsRegisterHelper("_tcp", ndnsd::kNdnDnsServiceSubtypeMFD, "test-tcp-uuid", 45312,
+            "/test/prefix");
+
+        WHEN("NdnSd instance browse for NDN services with subtype \""+ ndnsd::kNdnDnsServiceSubtypeMFD +"\"") {
+
+            shared_ptr<const NdnSd> discoveredSd;
+            int nDiscovered = 0;
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, ndnsd::kNdnDnsServiceSubtypeMFD },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                nDiscovered += 1;
+                discoveredSd = discovered;
+
+                REQUIRE(discovered->getUuid() == "test-tcp-uuid");
+                REQUIRE(discovered->getProtocol() == Proto::TCP);
+                REQUIRE(discovered->getDomain().size() > 0);
+                REQUIRE(discovered->getSubtype() == ndnsd::kNdnDnsServiceSubtypeMFD);
+
+            }, ndnSdErrorCb);
+
+            THEN("service is discovered") {
+                sd.run(1000);
+                REQUIRE(nDiscovered > 0);
+                REQUIRE(discoveredSd);
+            }
+        }
+        WHEN("NdnSd instance browse for NDN services with subtype \""+ ndnsd::kNdnDnsServiceSubtypeNFD +"\"") {
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, ndnsd::kNdnDnsServiceSubtypeNFD },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                FAIL("service should not be discovered");
+            }, ndnSdErrorCb);
+
+            THEN("service is NOT discovered") {
+                sd.run(1000);
+            }
+        }
+        WHEN("NdnSd instance browse for NDN services without any subtype") {
+
+            shared_ptr<const NdnSd> discoveredSd;
+            int nDiscovered = 0;
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                nDiscovered += 1;
+                discoveredSd = discovered;
+
+                REQUIRE(discovered->getUuid() == "test-tcp-uuid");
+                REQUIRE(discovered->getProtocol() == Proto::TCP);
+                REQUIRE(discovered->getDomain().size() > 0);
+                // subtype will be not known to us even if the advertised service had it
+                REQUIRE(discovered->getSubtype().size() == 0);
+
+            }, ndnSdErrorCb);
+
+            THEN("service is discovered") {
+                sd.run(1000);
+                REQUIRE(nDiscovered == 1);
+                REQUIRE(discoveredSd);
+            }
+        }
+
+        dnsServiceCleanupHelper(srvRef);
+    }
+
+    GIVEN("advertised two NDN services: one without a subtype "
+          "and another with subtype \"" + ndnsd::kNdnDnsServiceSubtypeMFD + "\"") {
+
+        auto srvRef1 = dnsRegisterHelper("_tcp", ndnsd::kNdnDnsServiceSubtypeMFD, 
+            "test-mfd-uuid", 45312, "/test/prefix/mfd");
+        auto srvRef2 = dnsRegisterHelper("_tcp", "", 
+            "test-nfd-uuid", 45312, "/multicast");
+
+        WHEN("NdnSd instance browse for NDN services with subtype \"" + ndnsd::kNdnDnsServiceSubtypeMFD + "\"") {
+
+            shared_ptr<const NdnSd> discoveredSd;
+            int nDiscovered = 0;
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, ndnsd::kNdnDnsServiceSubtypeMFD },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                nDiscovered += 1;
+                discoveredSd = discovered;
+
+                REQUIRE(discovered->getUuid() == "test-mfd-uuid");
+                REQUIRE(discovered->getSubtype() == ndnsd::kNdnDnsServiceSubtypeMFD);
+
+            }, ndnSdErrorCb);
+
+            THEN("mfd service is discovered") {
+                sd.run(1000);
+                REQUIRE(nDiscovered == 1);
+                REQUIRE(discoveredSd);
+            }
+        }
+        WHEN("NdnSd instance browse for NDN services without any subtype") {
+
+            bool mfdDiscovered = false, nfdDiscovered = false;
+            int nDiscovered = 0;
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                nDiscovered += 1;
+
+                bool allowedUuid = (discovered->getUuid() == "test-mfd-uuid" ||
+                        discovered->getUuid() == "test-nfd-uuid");
+                REQUIRE(allowedUuid);
+
+                if (discovered->getUuid() == "test-mfd-uuid")
+                    mfdDiscovered = true;
+                if (discovered->getUuid() == "test-nfd-uuid")
+                    nfdDiscovered = true;
+
+            }, ndnSdErrorCb);
+
+            THEN("both services are discovered") {
+                sd.run(1000);
+                REQUIRE(nDiscovered == 2);
+                REQUIRE(mfdDiscovered);
+                REQUIRE(nfdDiscovered);
+            }
+        }
+        WHEN("NdnSd instance browse for services with custom subtype") {
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "foofd" },
+                [&](int, shared_ptr<const NdnSd> discovered, void*)
+            {
+                FAIL("service should not be discovered");
+            }, ndnSdErrorCb);
+
+            THEN("no services are discovered") {
+                sd.run(1000);
+                SUCCEED("no services");
+            }
+        }
+
+        dnsServiceCleanupHelper(srvRef1);
+        dnsServiceCleanupHelper(srvRef2);
     }
 }
 
