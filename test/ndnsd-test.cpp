@@ -1,10 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <ndn-sd/ndn-sd.hpp>
+#include <map>
 
 #include "dns_sd.h"
 
 using namespace std;
 using namespace ndnsd;
+
+#define RUNLOOP_TIMEOUT 500
 
 void dnsRegisterReplyHelper(
     DNSServiceRef                       sdRef,
@@ -65,7 +68,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("service is discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
                 REQUIRE(nDiscovered == 1);
                 REQUIRE(discoveredSd);
             }
@@ -80,7 +83,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("service is NOT discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
             }
         }
 
@@ -116,7 +119,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("service is discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
                 REQUIRE(nDiscovered == 1);
                 REQUIRE(discoveredSd);
             }
@@ -131,7 +134,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("service is NOT discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
             }
         }
 
@@ -163,7 +166,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("service is discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
                 REQUIRE(nDiscovered > 0);
                 REQUIRE(discoveredSd);
             }
@@ -178,7 +181,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("service is NOT discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
             }
         }
         WHEN("NdnSd instance browse for NDN services without any subtype") {
@@ -202,7 +205,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("service is discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
                 REQUIRE(nDiscovered == 1);
                 REQUIRE(discoveredSd);
             }
@@ -237,7 +240,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("mfd service is discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
                 REQUIRE(nDiscovered == 1);
                 REQUIRE(discoveredSd);
             }
@@ -265,7 +268,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("both services are discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
                 REQUIRE(nDiscovered == 2);
                 REQUIRE(mfdDiscovered);
                 REQUIRE(nfdDiscovered);
@@ -281,8 +284,134 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             THEN("no services are discovered") {
-                sd.run(1000);
+                sd.run(RUNLOOP_TIMEOUT);
                 SUCCEED("no services");
+            }
+        }
+
+        dnsServiceCleanupHelper(srvRef1);
+        dnsServiceCleanupHelper(srvRef2);
+    }
+
+    GIVEN("discovered one NDN service") {
+
+        auto srvRef1 = dnsRegisterHelper("_tcp", "",
+            "test-uuid1", 45312, "/test/prefix/1");
+
+        vector<shared_ptr<const NdnSd>> discoveredSds;
+
+        NdnSd sd("test-uuid");
+        sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+            [&](int, shared_ptr<const NdnSd> discovered, void*)
+        {
+            discoveredSds.push_back(discovered);
+
+            if (discoveredSds.size() == 1)
+                REQUIRE(discovered->getUuid() == "test-uuid1");
+            if (discoveredSds.size() == 2)
+                REQUIRE(discovered->getUuid() == "test-uuid2");
+
+        }, ndnSdErrorCb);
+
+        sd.run(RUNLOOP_TIMEOUT);
+        REQUIRE(discoveredSds.size() == 1);
+
+        WHEN("new NDN service appears") {
+
+            auto srvRef2 = dnsRegisterHelper("_tcp", "",
+                "test-uuid2", 45312, "/test/prefix/2");
+
+            THEN("it is discovered too") {
+                sd.run(RUNLOOP_TIMEOUT);
+                REQUIRE(discoveredSds.size() == 2);;
+            }
+
+            dnsServiceCleanupHelper(srvRef2);
+        }
+        dnsServiceCleanupHelper(srvRef1);
+    }
+
+    GIVEN("discovered one NDN service") {
+
+        auto srvRef1 = dnsRegisterHelper("_tcp", "",
+            "test-uuid1", 45312, "/test/prefix/1");
+
+        vector<shared_ptr<const NdnSd>> discoveredSds;
+
+        NdnSd sd("test-uuid");
+        int reqId = sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+            [&](int rId, shared_ptr<const NdnSd> discovered, void*)
+        {
+            discoveredSds.push_back(discovered);
+
+            REQUIRE(reqId == rId);
+
+            if (discoveredSds.size() == 1)
+                REQUIRE(discovered->getUuid() == "test-uuid1");
+            REQUIRE_FALSE(discoveredSds.size() == 2);
+
+        }, ndnSdErrorCb);
+
+        sd.run(RUNLOOP_TIMEOUT);
+        REQUIRE(discoveredSds.size() == 1);
+
+        WHEN("browse request cancelled and new service appears") {
+
+            sd.cancel(reqId);
+
+            auto srvRef2 = dnsRegisterHelper("_tcp", "",
+                "test-uuid2", 45312, "/test/prefix/2");
+
+            THEN("no discovery callback called") {
+                sd.run(RUNLOOP_TIMEOUT);
+                REQUIRE(discoveredSds.size() == 1);;
+            }
+
+            dnsServiceCleanupHelper(srvRef2);
+        }
+        dnsServiceCleanupHelper(srvRef1);
+    }
+
+    GIVEN("advertised two NDN services with different protocols") {
+
+        auto srvRef1 = dnsRegisterHelper("_tcp","",
+            "test-tcp-uuid", 45312, "/test/prefix/1");
+        auto srvRef2 = dnsRegisterHelper("_udp", "",
+            "test-udp-uuid", 45312, "/test/prefix/2");
+
+        WHEN("NdnSd instance browse for both protocols in two browse requests") {
+
+            map<int, shared_ptr<const NdnSd>> discoveredSds;
+
+            NdnSd sd("test-uuid1");
+            int reqIdTcp = sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int rId, shared_ptr<const NdnSd> discovered, void*)
+            { 
+                REQUIRE(rId == reqIdTcp);
+                REQUIRE(discoveredSds.find(rId) == discoveredSds.end());
+                REQUIRE(discovered->getUuid() == "test-tcp-uuid");
+
+                discoveredSds[rId] = discovered;
+            }, ndnSdErrorCb);
+
+            int reqIdUdp = sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int rId, shared_ptr<const NdnSd> discovered, void*)
+            {
+                REQUIRE(rId == reqIdUdp);
+                REQUIRE(discoveredSds.find(rId) == discoveredSds.end());
+                REQUIRE(discovered->getUuid() == "test-udp-uuid");
+
+                discoveredSds[rId] = discovered;
+            }, ndnSdErrorCb);
+            
+            REQUIRE_FALSE(reqIdTcp == reqIdUdp);
+
+            THEN("both services discovered and both callback are called") {
+                sd.run(RUNLOOP_TIMEOUT);
+                
+                REQUIRE(discoveredSds.size() == 2);
+                REQUIRE_FALSE(discoveredSds.find(reqIdTcp) == discoveredSds.end());
+                REQUIRE_FALSE(discoveredSds.find(reqIdUdp) == discoveredSds.end());
             }
         }
 

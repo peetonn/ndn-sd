@@ -349,7 +349,7 @@ void NdnSd::Impl::browseReply(
 		// 1. check it's not our own
 		// 2. check if more coming and postpone callback
 		// 
-		cout << "ADD " << serviceName << " " << regtype << endl;
+		//cout << "ADD " << serviceName << " " << regtype << endl;
 		
 		if (br->pimpl_->uuid_ != serviceName)
 		{
