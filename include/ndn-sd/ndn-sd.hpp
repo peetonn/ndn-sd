@@ -15,8 +15,15 @@ namespace ndnsd
         TCP = 1 << 1
     };
 
-    typedef std::function<void(int, std::shared_ptr<const NdnSd>, void*)> OnResolvedService;
-    typedef OnResolvedService OnDiscoveredService;
+    // service browsing/resolving announcements
+    enum class Announcement {
+        Added,
+        Removed,
+        Resolved
+    };
+
+    typedef std::function<void(int, Announcement, std::shared_ptr<const NdnSd>, void*)> OnServiceAnnouncement;
+    typedef OnServiceAnnouncement OnResolvedService;
     typedef std::function<void(int, int, std::string, bool, void*)> OnError;
     typedef OnError OnBrowseError;
 
@@ -46,7 +53,7 @@ namespace ndnsd
 
         void advertise(const AdvertiseParameters& parameters);
         int browse(BrowseConstraints constraints,
-            OnDiscoveredService onDiscoveredServiceCb,
+            OnServiceAnnouncement onAnnouncementCb,
             OnBrowseError onBrowseErrorCb);
         void cancel(int requestId);
         void resolve(std::shared_ptr<const NdnSd> sd, 

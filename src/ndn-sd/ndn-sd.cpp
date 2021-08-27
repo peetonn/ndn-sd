@@ -42,7 +42,7 @@ namespace ndnsd
 			BrowseConstraints constraints_;
 			vector<shared_ptr<NdnSd>> discovered_;
 			OnBrowseError onError_;
-			OnDiscoveredService onDiscovered_;
+			OnServiceAnnouncement onAnnouncement_;
 		} BrowseRequest;
 
 		Impl(std::string uuid) {
@@ -162,16 +162,18 @@ int NdnSd::run(uint32_t timeoutMs)
 				}
 			}
 
+			// keep running if timeout is not set
 			run = (timeoutMs == 0);
 		}
 		else
 		{
-			if (res != 0)
+			if (res < 0)
 			{
-				cerr << "select returned error: " << errno << " - " << strerror(errno) << endl;
+				cerr << "select returned (" << res << ") error: " << errno << " - " << strerror(errno) << endl;
 				return errno;
 			}
 
+			// timeout reached, stop
 			run = false;
 		}
 	}
@@ -184,7 +186,7 @@ void NdnSd::advertise(const AdvertiseParameters& parameters)
 
 }
 
-int NdnSd::browse(BrowseConstraints constraints, OnDiscoveredService onDiscoveredServiceCb,
+int NdnSd::browse(BrowseConstraints constraints, OnServiceAnnouncement onAnnouncementCb,
 	OnError onBrowseErrorCb)
 {
 	DNSServiceRef ref;
@@ -215,7 +217,7 @@ int NdnSd::browse(BrowseConstraints constraints, OnDiscoveredService onDiscovere
 		br->id_ = brId;
 		br->serviceRef_ = ref;
 		br->constraints_ = constraints;
-		br->onDiscovered_ = onDiscoveredServiceCb;
+		br->onAnnouncement_ = onAnnouncementCb;
 		br->onError_ = onBrowseErrorCb;
 
 		pimpl_->brequests_[brId] = br;
@@ -345,25 +347,44 @@ void NdnSd::Impl::browseReply(
 		
 	if (errorCode == kDNSServiceErr_NoError)
 	{
-		// TODO: 
-		// 1. check it's not our own
-		// 2. check if more coming and postpone callback
-		// 
-		//cout << "ADD " << serviceName << " " << regtype << endl;
-		
-		if (br->pimpl_->uuid_ != serviceName)
+		if (flags & kDNSServiceFlagsAdd)
 		{
-			// TODO: wrap in a method
-			shared_ptr<NdnSd> sd = make_shared<NdnSd>(serviceName);
-			sd->pimpl_->parameters_.protocol_ = parseProtocol(regtype);
-			sd->pimpl_->parameters_.domain_ = replyDomain;
-			sd->pimpl_->parameters_.interfaceIdx_ = interfaceIndex;
-			sd->pimpl_->parameters_.subtype_ = br->constraints_.subtype_;
-			sd->pimpl_->parameters_.userData_ = br->constraints_.userData_;
+			// TODO: 
+			// 1. check it's not our own
+			// 2. check if more coming and postpone callback
+			// 
+			//cout << "ADD " << serviceName << " " << regtype << endl;
 
-			sd->pimpl_->state_ = ServiceState::Discovered;
-			br->discovered_.push_back(sd);
-			br->onDiscovered_(br->id_, sd, br->constraints_.userData_);
+			if (br->pimpl_->uuid_ != serviceName)
+			{
+				// TODO: wrap in a method
+				shared_ptr<NdnSd> sd = make_shared<NdnSd>(serviceName);
+				sd->pimpl_->parameters_.protocol_ = parseProtocol(regtype);
+				sd->pimpl_->parameters_.domain_ = replyDomain;
+				sd->pimpl_->parameters_.interfaceIdx_ = interfaceIndex;
+				sd->pimpl_->parameters_.subtype_ = br->constraints_.subtype_;
+				sd->pimpl_->parameters_.userData_ = br->constraints_.userData_;
+
+				sd->pimpl_->state_ = ServiceState::Discovered;
+				br->discovered_.push_back(sd);
+				br->onAnnouncement_(br->id_, Announcement::Added, sd, br->constraints_.userData_);
+			}
+		}
+		else
+		{
+			auto it = find_if(br->discovered_.begin(), br->discovered_.end(),
+				[&](auto sd) 
+			{
+				return sd->getUuid() == serviceName;
+			});
+
+			if (it != br->discovered_.end())
+			{
+				// TODO: check if it has been resolved and cleanup FD and other structs
+				auto sd = *it;
+				br->discovered_.erase(it);
+				br->onAnnouncement_(br->id_, Announcement::Removed, sd, br->constraints_.userData_);
+			}
 		}
 	}
 	else

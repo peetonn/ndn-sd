@@ -51,11 +51,12 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int, shared_ptr<const NdnSd> discovered, void*) 
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 nDiscovered += 1;
                 discoveredSd = discovered;
 
+                REQUIRE(a == Announcement::Added);
                 REQUIRE(discovered->getUuid() == "test-udp-uuid");
                 REQUIRE(discovered->getProtocol() == Proto::UDP);
                 REQUIRE(discovered->getDomain().size() > 0);
@@ -77,7 +78,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 FAIL("service should not be discovered");
             }, ndnSdErrorCb);
@@ -102,7 +103,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 nDiscovered += 1;
                 discoveredSd = discovered;
@@ -128,7 +129,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 FAIL("service should not be discovered");
             }, ndnSdErrorCb);
@@ -153,7 +154,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, ndnsd::kNdnDnsServiceSubtypeMFD },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 nDiscovered += 1;
                 discoveredSd = discovered;
@@ -175,7 +176,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, ndnsd::kNdnDnsServiceSubtypeNFD },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 FAIL("service should not be discovered");
             }, ndnSdErrorCb);
@@ -191,7 +192,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 nDiscovered += 1;
                 discoveredSd = discovered;
@@ -229,7 +230,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, ndnsd::kNdnDnsServiceSubtypeMFD },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 nDiscovered += 1;
                 discoveredSd = discovered;
@@ -252,7 +253,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 nDiscovered += 1;
 
@@ -278,7 +279,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "foofd" },
-                [&](int, shared_ptr<const NdnSd> discovered, void*)
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 FAIL("service should not be discovered");
             }, ndnSdErrorCb);
@@ -302,7 +303,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
         NdnSd sd("test-uuid");
         sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
-            [&](int, shared_ptr<const NdnSd> discovered, void*)
+            [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
         {
             discoveredSds.push_back(discovered);
 
@@ -340,7 +341,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
         NdnSd sd("test-uuid");
         int reqId = sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
-            [&](int rId, shared_ptr<const NdnSd> discovered, void*)
+            [&](int rId, Announcement a, shared_ptr<const NdnSd> discovered, void*)
         {
             discoveredSds.push_back(discovered);
 
@@ -385,7 +386,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
             NdnSd sd("test-uuid1");
             int reqIdTcp = sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int rId, shared_ptr<const NdnSd> discovered, void*)
+                [&](int rId, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             { 
                 REQUIRE(rId == reqIdTcp);
                 REQUIRE(discoveredSds.find(rId) == discoveredSds.end());
@@ -395,7 +396,7 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }, ndnSdErrorCb);
 
             int reqIdUdp = sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly },
-                [&](int rId, shared_ptr<const NdnSd> discovered, void*)
+                [&](int rId, Announcement a, shared_ptr<const NdnSd> discovered, void*)
             {
                 REQUIRE(rId == reqIdUdp);
                 REQUIRE(discoveredSds.find(rId) == discoveredSds.end());
@@ -417,6 +418,42 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
 
         dnsServiceCleanupHelper(srvRef1);
         dnsServiceCleanupHelper(srvRef2);
+    }
+
+    GIVEN("discovered one NDN service") {
+        NdnSd sd("test-uuid1");
+        int nDiscovered = 0;
+        sd.browse({ ndnsd::Proto::TCP, kDNSServiceInterfaceIndexLocalOnly },
+            [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
+        {
+            REQUIRE(discovered->getUuid() == "test-tcp-uuid");
+
+            if (nDiscovered == 1)
+            {
+                REQUIRE(a == Announcement::Removed);
+                nDiscovered -= 1;
+            }
+            else if (nDiscovered == 0)
+            {
+                REQUIRE(a == Announcement::Added);
+                nDiscovered += 1;
+            }
+        }, ndnSdErrorCb);
+
+        auto srvRef = dnsRegisterHelper("_tcp", "",
+            "test-tcp-uuid", 45312, "/test/prefix/1");
+
+        sd.run(RUNLOOP_TIMEOUT);
+        REQUIRE(nDiscovered == 1);
+
+        WHEN("service disappears") {
+            dnsServiceCleanupHelper(srvRef);
+            sd.run(RUNLOOP_TIMEOUT);
+
+            THEN("receive REMOVE announcement") {
+                REQUIRE(nDiscovered == 0);
+            }
+        }
     }
 }
 
