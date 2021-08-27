@@ -6,6 +6,8 @@
 #include <time.h>
 #include <cassert>
 
+#define MAX_TXT_RECORD_SIZE 1000
+
 #ifdef _WIN32
 #include <process.h>
 typedef int pid_t;
@@ -30,7 +32,8 @@ namespace ndnsd
 		Created = 0,
 		Discovered,
 		Resolved,
-		Published
+		Registering,
+		Registered
 	};
 
 	struct NdnSd::Impl : enable_shared_from_this<NdnSd::Impl> 
@@ -57,6 +60,10 @@ namespace ndnsd
 		string uuid_;
 		AdvertiseParameters parameters_;
 
+		DNSServiceRef advertisedRef_;
+		OnServiceRegistered onRegistered_;
+		OnRegisterError onRegisterError_;
+
 		// all browse requests
 		map<int, shared_ptr<BrowseRequest>> brequests_;
 
@@ -69,6 +76,7 @@ namespace ndnsd
 		map<int, DNSServiceRef> fdServiceRefMap_;
 
 		// helpers
+		void deregister();
 		void addRefToRunLoop(DNSServiceRef ref);
 		void removeRefFromRunloop(DNSServiceRef ref);
 
@@ -107,6 +115,7 @@ namespace ndnsd
 	string makeRegType(Proto p, string subtype = "");
 	Proto parseProtocol(string regtype);
 	string dnsSdErrorMessage(DNSServiceErrorType errorCode);
+	bool isMaxTxtSizeExceeded(size_t sz);
 }
 
 using ndnsd::NdnSd;
@@ -128,6 +137,9 @@ NdnSd::~NdnSd()
 		DNSServiceRefDeallocate(it->second->serviceRef_);
 		pimpl_->brequests_.erase(it);
 	}
+
+	// deregister if registered
+	pimpl_->deregister();
 }
 
 int NdnSd::run(uint32_t timeoutMs)
@@ -181,9 +193,96 @@ int NdnSd::run(uint32_t timeoutMs)
 	return 0;
 }
 
-void NdnSd::advertise(const AdvertiseParameters& parameters)
+int NdnSd::announce(const AdvertiseParameters& parameters,
+	OnServiceRegistered onRegisteredCb,
+	OnRegisterError onRegisterErrorCb)
 {
+	if (pimpl_->state_ != ServiceState::Created)
+	{
+		try
+		{
+			onRegisterErrorCb(-1, -1, "service is already registered or being registered", false, parameters.userData_);
+		}
+		catch (std::runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
 
+		return -1;
+	}
+
+	if (!parameters.prefix_.size() || !parameters.port_)
+	{
+		try 
+		{
+			onRegisterErrorCb(-1, -1, "prefix or port number is not set", false, parameters.userData_);
+		}
+		catch (std::runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
+	}
+
+	if (isMaxTxtSizeExceeded(parameters.prefix_.size() + parameters.cert_.size()))
+	{
+		try
+		{
+			onRegisterErrorCb(-1, -1, "maximum TXT record size exceeded", false, parameters.userData_);
+		}
+		catch (std::runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
+		
+		return -1;
+	}
+
+	// prep TXT record
+	uint16_t txtBufLen = MAX_TXT_RECORD_SIZE;
+	uint8_t* txtBuf = (uint8_t*)malloc(txtBufLen);
+	TXTRecordRef txtRecRef;
+	TXTRecordCreate(&txtRecRef, txtBufLen, txtBuf);
+	TXTRecordSetValue(&txtRecRef, "p", parameters.prefix_.size(), (void*)parameters.prefix_.data());
+
+	if (parameters.cert_.size())
+	{
+		TXTRecordSetValue(&txtRecRef, "c", parameters.cert_.size(), (void*)parameters.cert_.data());
+	}
+
+	DNSServiceRef dnsServiceRef;
+	auto err = DNSServiceRegister(&dnsServiceRef, 0, 
+		parameters.interfaceIdx_, pimpl_->uuid_.c_str(), 
+		makeRegType(parameters.protocol_, parameters.subtype_).c_str(),
+		(parameters.domain_.size() ? parameters.domain_.c_str() : nullptr), 
+		nullptr, 
+		htons(parameters.port_),
+		TXTRecordGetLength(&txtRecRef), TXTRecordGetBytesPtr(&txtRecRef),
+		&Impl::registerReply, pimpl_.get());
+	free(txtBuf);
+
+	if (err != kDNSServiceErr_NoError)
+	{
+		cerr << "failed to register service: " << err << endl;
+		try
+		{
+			onRegisterErrorCb(-1, err, dnsSdErrorMessage(err), true, parameters.userData_);
+		}
+		catch (std::runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
+	}
+	else
+	{
+		pimpl_->state_ = ServiceState::Registering;
+		pimpl_->advertisedRef_ = dnsServiceRef;
+		pimpl_->parameters_ = parameters;
+		pimpl_->onRegistered_ = onRegisteredCb;
+		pimpl_->onRegisterError_ = onRegisterErrorCb;
+		pimpl_->addRefToRunLoop(dnsServiceRef);
+	}
+
+	return 0;
 }
 
 int NdnSd::browse(BrowseConstraints constraints, OnServiceAnnouncement onAnnouncementCb,
@@ -270,8 +369,7 @@ int NdnSd::getInterface() const
 
 uint16_t NdnSd::getPort() const
 {
-	if (pimpl_->state_ == ServiceState::Published ||
-		pimpl_->state_ == ServiceState::Resolved)
+	if (pimpl_->state_ >= ServiceState::Resolved)
 		return pimpl_->parameters_.port_;
 	return 0;
 }
@@ -283,16 +381,14 @@ string NdnSd::getSubtype() const
 
 string NdnSd::getPrefix() const
 {
-	if (pimpl_->state_ == ServiceState::Published ||
-		pimpl_->state_ == ServiceState::Resolved)
+	if (pimpl_->state_ >= ServiceState::Resolved)
 		return pimpl_->parameters_.prefix_;
 	return "";
 }
 
 string NdnSd::getCertificate() const
 {
-	if (pimpl_->state_ == ServiceState::Published ||
-		pimpl_->state_ == ServiceState::Resolved)
+	if (pimpl_->state_ >= ServiceState::Resolved)
 		return pimpl_->parameters_.cert_;
 	return "";
 }
@@ -310,6 +406,18 @@ string NdnSd::getVersion()
 }
 
 // Impl helpers
+void NdnSd::Impl::deregister()
+{
+	if (state_ >= ServiceState::Registering)
+	{
+		// TODO: service fd might be under select (in multi-threaded setup). 
+		// need to handle
+		removeRefFromRunloop(advertisedRef_);
+		DNSServiceRefDeallocate(advertisedRef_);
+		state_ = ServiceState::Created;
+	}
+}
+
 void NdnSd::Impl::addRefToRunLoop(DNSServiceRef ref)
 {
 	// TODO: do mutex access here
@@ -367,7 +475,14 @@ void NdnSd::Impl::browseReply(
 
 				sd->pimpl_->state_ = ServiceState::Discovered;
 				br->discovered_.push_back(sd);
-				br->onAnnouncement_(br->id_, Announcement::Added, sd, br->constraints_.userData_);
+				try
+				{
+					br->onAnnouncement_(br->id_, Announcement::Added, sd, br->constraints_.userData_);
+				}
+				catch (std::runtime_error& e)
+				{
+					cerr << "caught exception while calling user callback: " << e.what() << endl;
+				}
 			}
 		}
 		else
@@ -383,14 +498,29 @@ void NdnSd::Impl::browseReply(
 				// TODO: check if it has been resolved and cleanup FD and other structs
 				auto sd = *it;
 				br->discovered_.erase(it);
-				br->onAnnouncement_(br->id_, Announcement::Removed, sd, br->constraints_.userData_);
+
+				try
+				{
+					br->onAnnouncement_(br->id_, Announcement::Removed, sd, br->constraints_.userData_);
+				}
+				catch (std::runtime_error& e)
+				{
+					cerr << "caught exception while calling user callback: " << e.what() << endl;
+				}
 			}
 		}
 	}
 	else
 	{
-		br->onError_(br->id_, errorCode, dnsSdErrorMessage(errorCode), true, 
-			br->constraints_.userData_);
+		try
+		{
+			br->onError_(br->id_, errorCode, dnsSdErrorMessage(errorCode), true,
+				br->constraints_.userData_);
+		}
+		catch (std::runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
 	}
 }
 
@@ -418,7 +548,42 @@ void NdnSd::Impl::registerReply(
 	const char* domain,
 	void* context)
 {
+	NdnSd::Impl* pimpl = static_cast<NdnSd::Impl*>(context);
 
+	if (!pimpl)
+	{
+		cerr << "FATAL: registerReply: no impl pointer provided" << endl;
+		return;
+	}
+
+	if (errorCode == kDNSServiceErr_NoError)
+	{
+		assert(pimpl->uuid_ == name);
+		assert(makeRegType(pimpl->parameters_.protocol_) == regtype);
+
+		try 
+		{
+			pimpl->state_ = ServiceState::Registered;
+			pimpl->parameters_.domain_ = domain;
+			pimpl->onRegistered_(pimpl->parameters_.userData_);
+		}
+		catch (std::runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
+	}
+	else
+	{
+		try
+		{
+			pimpl->onRegisterError_(-1, errorCode, dnsSdErrorMessage(errorCode), true,
+				pimpl->parameters_.userData_);
+		}
+		catch (std::runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
+	}
 }
 
 //*** helpers
@@ -437,6 +602,8 @@ string ndnsd::makeRegType(Proto p, string subtype)
 
 	if (subtype.size())
 		regtype += "," + subtype;
+	else
+		regtype += ".";
 
 	return regtype;
 }
@@ -489,4 +656,9 @@ string ndnsd::dnsSdErrorMessage(DNSServiceErrorType errorCode)
 		return errorCodesMap.at(errorCode);
 
 	return "unknown error code";
+}
+
+bool ndnsd::isMaxTxtSizeExceeded(size_t sz)
+{
+	return (sz + 4 > MAX_TXT_RECORD_SIZE);
 }

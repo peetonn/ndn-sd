@@ -24,8 +24,10 @@ namespace ndnsd
 
     typedef std::function<void(int, Announcement, std::shared_ptr<const NdnSd>, void*)> OnServiceAnnouncement;
     typedef OnServiceAnnouncement OnResolvedService;
+    typedef std::function<void(void*)> OnServiceRegistered;
     typedef std::function<void(int, int, std::string, bool, void*)> OnError;
     typedef OnError OnBrowseError;
+    typedef OnError OnRegisterError;
 
     /**
     * NDN Service Discovery class.
@@ -35,8 +37,8 @@ namespace ndnsd
     class NdnSd {
     public:
         typedef struct _BrowseConstraints {
-            Proto protocol_;
-            uint32_t interfaceIdx_;
+            Proto protocol_ = Proto::UDP;
+            uint32_t interfaceIdx_ = 0;
             std::string subtype_;
             std::string domain_;
             void* userData_ = nullptr;
@@ -51,7 +53,9 @@ namespace ndnsd
         NdnSd(std::string uuid);
         ~NdnSd();
 
-        void advertise(const AdvertiseParameters& parameters);
+        int announce(const AdvertiseParameters& parameters,
+            OnServiceRegistered onRegisteredCb,
+            OnRegisterError onRegisterErrorCb);
         int browse(BrowseConstraints constraints,
             OnServiceAnnouncement onAnnouncementCb,
             OnBrowseError onBrowseErrorCb);

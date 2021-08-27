@@ -21,7 +21,11 @@ DNSServiceRef* dnsRegisterHelper(string protocol, string subtype, string uuid,
     int port, string prefix, bool addCert = false);
 void dnsServiceCleanupHelper(DNSServiceRef* ref);
 
-TEST_CASE( "NDN-SD construction", "[ndnsd]" ) {
+typedef function<void(uint32_t, DNSServiceFlags, DNSServiceErrorType, string, string, string, void*)> OnDiscoveredServiceHelperFunc;
+map<DNSServiceRef, OnDiscoveredServiceHelperFunc> discoverServiceCallbacks;
+DNSServiceRef* dnsBrowseHelper(string protocol, string subtype, OnDiscoveredServiceHelperFunc fn);
+
+TEST_CASE( "NDN-SD construction", "[ctor]" ) {
     SECTION("declared as variable")
     {
         NdnSd sd("test-uuid1");
@@ -33,7 +37,7 @@ TEST_CASE( "NDN-SD construction", "[ndnsd]" ) {
     }
 }
 
-TEST_CASE("NDN-SD service browse", "[ndnsd]") {
+TEST_CASE("NDN-SD service browse", "[browse discover]") {
 
     auto ndnSdErrorCb = [](int reqId, int errCode, string msg, bool, void*) {
         FAIL("error occurred: " << errCode << " " << msg);
@@ -455,6 +459,267 @@ TEST_CASE("NDN-SD service browse", "[ndnsd]") {
             }
         }
     }
+
+    GIVEN("advertised NDN service") {
+
+        auto srvRef = dnsRegisterHelper("_udp", "", "test-udp-uuid", 45312,
+            "/test/prefix");
+
+        WHEN("NdnSd instance discovers NDN services and discover callback throws") {
+
+            shared_ptr<const NdnSd> discoveredSd;
+            int nDiscovered = 0;
+
+            NdnSd sd("test-uuid1");
+            sd.browse({ ndnsd::Proto::UDP, kDNSServiceInterfaceIndexLocalOnly },
+                [&](int, Announcement a, shared_ptr<const NdnSd> discovered, void*)
+            {
+                throw runtime_error("some error");
+
+            }, ndnSdErrorCb);
+
+            THEN("NdnSd runloop does not throw") {
+                REQUIRE_NOTHROW(
+                    sd.run(RUNLOOP_TIMEOUT)
+                );
+            }
+        }
+        dnsServiceCleanupHelper(srvRef);
+    }
+}
+
+TEST_CASE("NDN-SD service announcement", "[announce register]") {
+    auto ndnSdErrorCb = [](int reqId, int errCode, string msg, bool, void*) {
+        FAIL("error occurred: " << errCode << " " << msg);
+    };
+
+    GIVEN("new NDN-SD service is created") {
+
+        NdnSd sd("uuid1");
+
+        WHEN("UDP service registered successfully") {
+
+            bool regSuccess = false;
+            sd.announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+                [&](void*)
+            {
+                regSuccess = true;
+            }, ndnSdErrorCb);
+
+            REQUIRE(sd.getDomain().size() == 0);
+
+            sd.run(RUNLOOP_TIMEOUT);
+            REQUIRE(regSuccess);
+            REQUIRE(sd.getDomain().size() > 0);
+
+            THEN("it is discovered")
+            {
+                bool discovered = false;
+                auto ref = dnsBrowseHelper("_udp", "",
+                    [&](uint32_t, DNSServiceFlags flags, DNSServiceErrorType err,
+                        string serviceName, string regtype, string domain,
+                        void *)
+                {
+                    REQUIRE(err == kDNSServiceErr_NoError);
+                    REQUIRE(flags & kDNSServiceFlagsAdd);
+                    REQUIRE(serviceName == sd.getUuid());
+                    REQUIRE(regtype == "_ndn._udp.");
+                    REQUIRE(domain.size() > 0);
+                    discovered = true;
+                });
+
+                dnsServiceCleanupHelper(ref);
+                REQUIRE(discovered);
+            }
+        }
+
+        WHEN("TCP service registered successfully") {
+
+            bool regSuccess = false;
+            sd.announce({ Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+                [&](void*)
+            {
+                regSuccess = true;
+            }, ndnSdErrorCb);
+
+            REQUIRE(sd.getDomain().size() == 0);
+
+            sd.run(RUNLOOP_TIMEOUT);
+            REQUIRE(regSuccess);
+            REQUIRE(sd.getDomain().size() > 0);
+
+            THEN("it is discovered")
+            {
+                bool discovered = false;
+                auto ref = dnsBrowseHelper("_tcp", "",
+                    [&](uint32_t, DNSServiceFlags flags, DNSServiceErrorType err,
+                        string serviceName, string regtype, string domain,
+                        void*)
+                {
+                    REQUIRE(err == kDNSServiceErr_NoError);
+                    REQUIRE(flags & kDNSServiceFlagsAdd);
+                    REQUIRE(serviceName == sd.getUuid());
+                    REQUIRE(regtype == "_ndn._tcp.");
+                    REQUIRE(domain.size() > 0);
+                    discovered = true;
+                });
+
+                dnsServiceCleanupHelper(ref);
+                REQUIRE(discovered);
+            }
+        }
+
+        WHEN("service with subtype registered successfully") {
+
+            bool regSuccess = false;
+            sd.announce({ Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, kNdnDnsServiceSubtypeMFD, 
+                "", nullptr, 41432, "/test/uuid1" },
+                [&](void*)
+            {
+                regSuccess = true;
+            }, ndnSdErrorCb);
+
+            REQUIRE(sd.getDomain().size() == 0);
+
+            sd.run(RUNLOOP_TIMEOUT);
+            REQUIRE(regSuccess);
+            REQUIRE(sd.getDomain().size() > 0);
+
+            THEN("it is discovered")
+            {
+                bool discovered = false;
+                auto ref = dnsBrowseHelper("_tcp", "mfd",
+                    [&](uint32_t, DNSServiceFlags flags, DNSServiceErrorType err,
+                        string serviceName, string regtype, string domain,
+                        void*)
+                {
+                    REQUIRE(err == kDNSServiceErr_NoError);
+                    REQUIRE(flags & kDNSServiceFlagsAdd);
+                    REQUIRE(serviceName == sd.getUuid());
+                    REQUIRE(regtype == "_ndn._tcp.");
+                    REQUIRE(domain.size() > 0);
+
+                    discovered = true;
+                });
+
+                dnsServiceCleanupHelper(ref);
+                REQUIRE(discovered);
+            }
+        }
+    }
+    GIVEN("new NDN-SD service is announced and discovered") {
+
+        shared_ptr<NdnSd> sd = make_shared<NdnSd>("uuid1");
+
+        bool regSuccess = false;
+        sd->announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+            [&](void*)
+        {
+            regSuccess = true;
+        }, ndnSdErrorCb);
+
+        sd->run(RUNLOOP_TIMEOUT);
+        REQUIRE(regSuccess);
+
+        int called = 0;
+        bool discovered = false, removed = false;
+        auto ref = dnsBrowseHelper("_udp", "",
+            [&](uint32_t, DNSServiceFlags flags, DNSServiceErrorType err,
+                string serviceName, string regtype, string domain,
+                void*)
+        {
+            if (called == 0)
+            {
+                REQUIRE(flags & kDNSServiceFlagsAdd);
+                discovered = true;
+            }
+            if (called == 1)
+            {
+                REQUIRE_FALSE(flags & kDNSServiceFlagsAdd);
+                removed = true;
+            }
+            called += 1;
+        });
+
+        REQUIRE(discovered);
+
+        WHEN("service is destroyed") {
+
+            sd.reset();
+
+            THEN("it is un-discovered")
+            {
+                DNSServiceProcessResult(*ref);
+                REQUIRE(removed);
+            }
+        }
+
+        dnsServiceCleanupHelper(ref);
+    }
+
+    GIVEN("new NDN-SD service is created") {
+
+        NdnSd sd("uuid1");
+
+        WHEN("try to announce with default parameters") {
+
+            bool calledError = false;
+            sd.announce({},
+                [&](void*)
+            {
+                FAIL("success callback should've not get fired");
+            }, 
+                [&](int, int, string, bool, void*)
+            {
+                calledError = true;
+            });
+
+            THEN("error callback will get called")
+            {
+                REQUIRE(calledError);
+            }
+        }
+    }
+
+    GIVEN("new NDN-SD service is announced and discovered") {
+
+        NdnSd sd("uuid-unique");
+
+        bool regSuccess = false;
+        sd.announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+            [&](void*)
+        {
+            regSuccess = true;
+        }, ndnSdErrorCb);
+
+        sd.run(RUNLOOP_TIMEOUT);
+        REQUIRE(regSuccess);
+
+        WHEN("new service is announced with the same uuid") {
+            NdnSd sd2("uuid-unique");
+
+            bool errorCalled = false;
+            sd2.announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+                [&](void*)
+            {
+                FAIL("registration should fail");
+            }, 
+                [&](int, int, string, bool dnsError, void*) 
+            {
+                errorCalled = true;
+                REQUIRE(dnsError);
+            });
+            sd2.run(RUNLOOP_TIMEOUT);
+
+            THEN("registration fails and error callback is called")
+            {
+                REQUIRE(errorCalled);
+            }
+        }
+    }
+
+    // TODO: announce twice
+    // TODO: announce with invalid args
 }
 
 DNSServiceRef* dnsRegisterHelper(string protocol, string subtype, string uuid,
@@ -496,6 +761,7 @@ DNSServiceRef* dnsRegisterHelper(string protocol, string subtype, string uuid,
     {
         dnsServiceCleanupHelper(dnsServiceRef);
         FAIL("failed to register test service");
+        delete dnsServiceRef;
     }
     return nullptr;
 }
@@ -504,6 +770,11 @@ void dnsServiceCleanupHelper(DNSServiceRef* ref)
 {
     if (ref)
     {
+        if (discoverServiceCallbacks.find(*ref) != discoverServiceCallbacks.end())
+        {
+            discoverServiceCallbacks.erase(*ref);
+        }
+
         DNSServiceRefDeallocate(*ref);
         delete ref;
     }
@@ -524,4 +795,44 @@ void dnsRegisterReplyHelper(
     }
     else
         FAIL("TEST SRV REGISTER FAILURE: " << errorCode);
+}
+
+void browseReplyHelper(
+    DNSServiceRef                       sdRef,
+    DNSServiceFlags                     flags,
+    uint32_t                            interfaceIndex,
+    DNSServiceErrorType                 errorCode,
+    const char* serviceName,
+    const char* regtype,
+    const char* replyDomain,
+    void* context)
+{
+    if (discoverServiceCallbacks.find(sdRef) != discoverServiceCallbacks.end())
+        discoverServiceCallbacks[sdRef](interfaceIndex, flags, errorCode, serviceName, 
+            regtype, replyDomain, context);
+}
+
+DNSServiceRef* dnsBrowseHelper(string protocol, string subtype, 
+    OnDiscoveredServiceHelperFunc fn)
+{
+    DNSServiceRef* dnsServiceRef = new DNSServiceRef;
+    string regtype = "_ndn." + protocol;
+    if (subtype.size()) regtype += "," + subtype;
+
+    auto err = DNSServiceBrowse(dnsServiceRef, 0, kDNSServiceInterfaceIndexLocalOnly,
+        regtype.c_str(), nullptr, &browseReplyHelper, nullptr);
+
+    CHECKED_IF(err == kDNSServiceErr_NoError)
+    {
+        discoverServiceCallbacks[*dnsServiceRef] = fn;
+        DNSServiceProcessResult(*dnsServiceRef);
+        return dnsServiceRef;
+    }
+    CHECKED_ELSE(err == kDNSServiceErr_NoError)
+    {
+        dnsServiceCleanupHelper(dnsServiceRef);
+        FAIL("DNS browse helper failed");
+        delete dnsServiceRef;
+    }
+    return nullptr;
 }
