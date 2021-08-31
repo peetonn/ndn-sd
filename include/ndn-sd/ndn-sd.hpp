@@ -62,7 +62,8 @@ namespace ndnsd
         void cancel(int requestId);
         void resolve(std::shared_ptr<const NdnSd> sd, 
             OnResolvedService onResolvedServiceCb,
-            OnError onResolveErrorCb);
+            OnError onResolveErrorCb,
+            void *userData = nullptr);
 
         // TODO: see if this should be static
         // timeout or till the first read
@@ -75,8 +76,14 @@ namespace ndnsd
         int getInterface() const;
         std::string getSubtype() const;
         std::string getDomain() const;
+
+        // for registered or discovered instances
         std::string getPrefix() const;
-        std::string getCertificate() const;   
+        std::string getCertificate() const;
+
+        // only on resolved instances
+        std::string getHostname() const;
+        std::string getFullname() const;
 
         static std::string getVersion();
 

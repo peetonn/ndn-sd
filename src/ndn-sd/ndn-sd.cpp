@@ -22,9 +22,9 @@ typedef int pid_t;
 
 using namespace std;
 
-const std::string ndnsd::kNdnDnsServiceType = "_ndn";
-const std::string ndnsd::kNdnDnsServiceSubtypeMFD = "mfd";
-const std::string ndnsd::kNdnDnsServiceSubtypeNFD = "nfd";
+const string ndnsd::kNdnDnsServiceType = "_ndn";
+const string ndnsd::kNdnDnsServiceSubtypeMFD = "mfd";
+const string ndnsd::kNdnDnsServiceSubtypeNFD = "nfd";
 
 namespace ndnsd
 {
@@ -36,17 +36,39 @@ namespace ndnsd
 		Registered
 	};
 
+	const string kNdnDnsServiceTxtPrefixKey = "p";
+	const string kNdnDnsServiceTxtCertificateKey = "c";
+
 	struct NdnSd::Impl : enable_shared_from_this<NdnSd::Impl> 
 	{
-		typedef struct _BrowseRequest {
+		typedef struct _ServiceParameters : AdvertiseParameters {
+			string hostname_;
+			string fullname_;
+
+			struct _ServiceParameters& operator=(const AdvertiseParameters& ap)
+			{
+				*((AdvertiseParameters*)this) = ap;
+				return *this;
+			}
+		} ServiceParameters;
+
+		typedef struct _DnsRequest {
 			int id_ = -1;
 			DNSServiceRef serviceRef_;
 			shared_ptr<Impl> pimpl_;
-			BrowseConstraints constraints_;
-			vector<shared_ptr<NdnSd>> discovered_;
 			OnBrowseError onError_;
 			OnServiceAnnouncement onAnnouncement_;
+		} DnsRequest;
+
+		typedef struct _BrowseRequest : DnsRequest {
+			BrowseConstraints constraints_;
+			vector<shared_ptr<NdnSd>> discovered_;
 		} BrowseRequest;
+
+		typedef struct _ResolveRequest : DnsRequest {
+			shared_ptr<NdnSd> sd_;
+			void* userData_;
+		} ResolveRequest;
 
 		Impl(std::string uuid) {
 			uuid_ = uuid; 
@@ -58,7 +80,7 @@ namespace ndnsd
 
 		ServiceState state_;
 		string uuid_;
-		AdvertiseParameters parameters_;
+		ServiceParameters parameters_;
 
 		DNSServiceRef advertisedRef_;
 		OnServiceRegistered onRegistered_;
@@ -66,11 +88,14 @@ namespace ndnsd
 
 		// all browse requests
 		map<int, shared_ptr<BrowseRequest>> brequests_;
+		// all resolution requests
+		map<int, shared_ptr<ResolveRequest>> rrequests_;
 
 		// store discovered-only services (not resolved yet)
 		//vector<shared_ptr<NdnSd>> discovered_;
 		// store resolved services
 		//vector<shared_ptr<NdnSd>> resolved_;
+		
 
 		// TODO:see if this should be static
 		map<int, DNSServiceRef> fdServiceRefMap_;
@@ -79,6 +104,8 @@ namespace ndnsd
 		void deregister();
 		void addRefToRunLoop(DNSServiceRef ref);
 		void removeRefFromRunloop(DNSServiceRef ref);
+		vector<shared_ptr<NdnSd>> getDiscoveredServices() const;
+		void removeRequest(shared_ptr<DnsRequest> rr);
 
 		// DNS-SD callbacks
 		static void browseReply(
@@ -160,11 +187,15 @@ int NdnSd::run(uint32_t timeoutMs)
 		int res = select(0, &readfds, (fd_set*)nullptr, (fd_set*)nullptr, (timeoutMs ? &tv : 0));
 		if (res > 0)
 		{
-			for (auto it : pimpl_->fdServiceRefMap_)
+			for (auto it = pimpl_->fdServiceRefMap_.cbegin(), nextIt = it;
+				it != pimpl_->fdServiceRefMap_.cend(); it = nextIt)
 			{
-				if (FD_ISSET(it.first, &readfds))
+				// this setup with nextIt is needed because fdServiceRefMap can be 
+				// modified from within this loop (in callbacks invoked by DNSServiceProcessResult)
+				++nextIt; 
+				if (FD_ISSET(it->first, &readfds))
 				{
-					auto err = DNSServiceProcessResult(it.second);
+					auto err = DNSServiceProcessResult(it->second);
 					if (err)
 					{
 						cerr << "process result error: " << err << endl;
@@ -242,11 +273,13 @@ int NdnSd::announce(const AdvertiseParameters& parameters,
 	uint8_t* txtBuf = (uint8_t*)malloc(txtBufLen);
 	TXTRecordRef txtRecRef;
 	TXTRecordCreate(&txtRecRef, txtBufLen, txtBuf);
-	TXTRecordSetValue(&txtRecRef, "p", parameters.prefix_.size(), (void*)parameters.prefix_.data());
+	TXTRecordSetValue(&txtRecRef, kNdnDnsServiceTxtPrefixKey.c_str(),
+		parameters.prefix_.size(), (void*)parameters.prefix_.data());
 
 	if (parameters.cert_.size())
 	{
-		TXTRecordSetValue(&txtRecRef, "c", parameters.cert_.size(), (void*)parameters.cert_.data());
+		TXTRecordSetValue(&txtRecRef, kNdnDnsServiceTxtCertificateKey.c_str(), 
+			parameters.cert_.size(), (void*)parameters.cert_.data());
 	}
 
 	DNSServiceRef dnsServiceRef;
@@ -334,22 +367,71 @@ void NdnSd::cancel(int requestId)
 
 	if (it != pimpl_->brequests_.end())
 	{
-		// 1. remove fd from runloop
-		pimpl_->removeRefFromRunloop(it->second->serviceRef_);
-
-		// 2. deallocate dns service ref
-		DNSServiceRefDeallocate(it->second->serviceRef_);
-
-		// 3. remove request from the request dict
+		pimpl_->removeRequest(it->second);
 		pimpl_->brequests_.erase(it);
 	}
 }
 
 void NdnSd::resolve(shared_ptr<const NdnSd> sd,
 	OnResolvedService onResolvedServiceCb,
-	OnError onResolveErrorCb)
+	OnError onResolveErrorCb,
+	void* userData)
 {
 
+	auto allDiscovered = pimpl_->getDiscoveredServices();
+	auto it = find(allDiscovered.begin(), allDiscovered.end(), sd);
+	if (it == allDiscovered.end())
+	{
+		try
+		{
+			onResolveErrorCb(-1, -1, "service discovery instance is unknown", false, userData);
+		}
+		catch (runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
+	}
+	else
+	{
+		shared_ptr<Impl::ResolveRequest> rr = make_shared<Impl::ResolveRequest>();
+
+		DNSServiceRef dnsServiceRef;
+		auto res = DNSServiceResolve(&dnsServiceRef, 0, 
+			sd->getInterface(),
+			sd->getUuid().c_str(),
+			makeRegType(sd->getProtocol(), ""/*sd->getSubtype()*/).c_str(),
+			sd->getDomain().c_str(),
+			&Impl::resolveReply, 
+			rr.get());
+
+		if (res == kDNSServiceErr_NoError)
+		{
+			int rrId = (pimpl_->rrequests_.size() ? pimpl_->rrequests_.rbegin()->first + 1 : 1);
+			assert(pimpl_->rrequests_.find(rrId) == pimpl_->rrequests_.end());
+
+			rr->id_ = rrId;
+			rr->pimpl_ = pimpl_;
+			rr->onError_ = onResolveErrorCb;
+			rr->onAnnouncement_ = onResolvedServiceCb;
+			rr->userData_ = userData;
+			rr->sd_ = *it;
+			rr->serviceRef_ = dnsServiceRef;
+
+			pimpl_->rrequests_[rrId] = rr;
+			pimpl_->addRefToRunLoop(dnsServiceRef);
+		}
+		else
+		{
+			try
+			{
+				onResolveErrorCb(-1, res, dnsSdErrorMessage(res), true, userData);
+			}
+			catch (runtime_error& e)
+			{
+				cerr << "caught exception while calling user callback: " << e.what() << endl;
+			}
+		}
+	}
 }
 
 string NdnSd::getUuid() const
@@ -400,6 +482,22 @@ string NdnSd::getDomain() const
 	return "";
 }
 
+string NdnSd::getHostname() const 
+{
+	if (pimpl_->state_ == ServiceState::Resolved)
+		return pimpl_->parameters_.hostname_;
+
+	return "";
+}
+
+string NdnSd::getFullname() const 
+{
+	if (pimpl_->state_ == ServiceState::Resolved)
+		return pimpl_->parameters_.fullname_;
+
+	return "";
+}
+
 string NdnSd::getVersion()
 {
 	return "x.x.x";
@@ -431,6 +529,26 @@ void NdnSd::Impl::removeRefFromRunloop(DNSServiceRef ref)
 	{
 		// TODO: do mutex access here
 		fdServiceRefMap_.erase(it);
+	}
+}
+
+vector<shared_ptr<NdnSd>> NdnSd::Impl::getDiscoveredServices() const
+{
+	vector<shared_ptr<NdnSd>> all;
+
+	for (auto r : brequests_)
+		all.insert(all.end(),
+			r.second->discovered_.begin(), r.second->discovered_.end());
+
+	return all;
+}
+
+void NdnSd::Impl::removeRequest(shared_ptr<DnsRequest> r)
+{
+	if (r)
+	{
+		removeRefFromRunloop(r->serviceRef_);
+		DNSServiceRefDeallocate(r->serviceRef_);
 	}
 }
 
@@ -536,7 +654,73 @@ void NdnSd::Impl::resolveReply(
 	const unsigned char* txtRecord,
 	void* context)
 {
+	ResolveRequest* rr = static_cast<ResolveRequest*>(context);
 
+	if (!rr)
+	{
+		cerr << "DNSServiceRef has no ResolveRequest owner" << endl;
+		return;
+	}
+
+	if (errorCode == kDNSServiceErr_NoError)
+	{
+		
+		auto resolvedSdImpl = rr->sd_->pimpl_;
+		resolvedSdImpl->parameters_.interfaceIdx_ = interfaceIndex;
+		resolvedSdImpl->parameters_.port_ = ntohs(port);
+		resolvedSdImpl->parameters_.hostname_ = hosttarget;
+		resolvedSdImpl->parameters_.fullname_ = fullname;
+
+		if (TXTRecordContainsKey(txtLen, txtRecord, kNdnDnsServiceTxtPrefixKey.c_str()))
+		{
+			uint8_t prefixLen = 0;
+			auto prefixData = TXTRecordGetValuePtr(txtLen, txtRecord, kNdnDnsServiceTxtPrefixKey.c_str(),
+				&prefixLen);
+
+			resolvedSdImpl->state_ = ServiceState::Resolved;
+			resolvedSdImpl->parameters_.prefix_ = string((const char*)prefixData, prefixLen);
+
+			if (TXTRecordContainsKey(txtLen, txtRecord, kNdnDnsServiceTxtCertificateKey.c_str()))
+			{
+				uint8_t certLen = 0;
+				auto certData = TXTRecordGetValuePtr(txtLen, txtRecord, kNdnDnsServiceTxtCertificateKey.c_str(),
+					&certLen);
+
+				resolvedSdImpl->parameters_.cert_ = string((const char*)certData, certLen);
+			}
+
+			cout << "RESOLVED " << resolvedSdImpl->parameters_.fullname_ 
+					<< " " << resolvedSdImpl->parameters_.hostname_ << endl;
+
+			rr->onAnnouncement_(rr->id_, Announcement::Resolved, rr->sd_, rr->userData_);
+			rr->pimpl_->removeRequest(rr->pimpl_->rrequests_[rr->id_]);
+			rr->pimpl_->rrequests_.erase(rr->id_);
+		}
+		else
+		{
+			try
+			{
+				rr->onError_(rr->id_, -1, "prefix data was not found in resolved service TXT record",
+					false, rr->userData_);
+			}
+			catch (runtime_error& e)
+			{
+				cerr << "caught exception while calling user callback: " << e.what() << endl;
+			}
+		}
+
+	}
+	else
+	{
+		try
+		{
+			rr->onError_(rr->id_, errorCode, dnsSdErrorMessage(errorCode), true, rr->userData_);
+		}
+		catch (runtime_error& e)
+		{
+			cerr << "caught exception while calling user callback: " << e.what() << endl;
+		}
+	}
 }
 
 void NdnSd::Impl::registerReply(

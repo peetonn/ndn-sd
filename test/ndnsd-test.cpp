@@ -608,6 +608,7 @@ TEST_CASE("NDN-SD service announcement", "[announce register]") {
             }
         }
     }
+
     GIVEN("new NDN-SD service is announced and discovered") {
 
         shared_ptr<NdnSd> sd = make_shared<NdnSd>("uuid1");
@@ -879,6 +880,58 @@ TEST_CASE("NDN-SD service announcement", "[announce register]") {
                 REQUIRE(calledCb);
             }
         }
+    }
+}
+
+TEST_CASE("NDN-SD service resolution", "[resolve]") {
+    auto ndnSdErrorCb = [](int reqId, int errCode, string msg, bool, void*) {
+        FAIL("error occurred: " << errCode << " " << msg);
+    };
+
+    GIVEN("an NDN-SD service is discovered") {
+        auto ref = dnsRegisterHelper("_udp", "mfd", "test-uuid", 43211, "/test/prefix/1", true);
+        
+        NdnSd browser("temp-uuid");
+        shared_ptr<const NdnSd> discovered;
+
+        browser.browse({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "mfd" },
+            [&](int, Announcement, std::shared_ptr<const NdnSd> sd, void*)
+        {
+            REQUIRE(sd->getUuid() == "test-uuid");
+            REQUIRE(sd->getFullname().size() == 0);
+            REQUIRE(sd->getHostname().size() == 0);
+            REQUIRE(sd->getPort() == 0);
+
+            discovered = sd;
+        }, ndnSdErrorCb);
+
+        browser.run(RUNLOOP_TIMEOUT);
+        REQUIRE(discovered);
+
+        WHEN("attempt to resolve is made") {
+            shared_ptr<const NdnSd> resolved;
+            browser.resolve(discovered,
+                [&](int, Announcement an, shared_ptr<const NdnSd> sd, void*)
+            {
+                REQUIRE(an == Announcement::Resolved);
+
+                REQUIRE(sd->getFullname().size() > 0);
+                REQUIRE(sd->getHostname().size() > 0);
+                REQUIRE(sd->getPort() != 0);
+
+                resolved = sd;
+            },
+                ndnSdErrorCb);
+            
+            browser.run(RUNLOOP_TIMEOUT);
+
+            THEN("it is successful") {
+                REQUIRE(resolved);
+                REQUIRE(resolved == discovered);
+            }
+        }
+
+        dnsServiceCleanupHelper(ref);
     }
 }
 
