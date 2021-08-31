@@ -689,9 +689,6 @@ void NdnSd::Impl::resolveReply(
 				resolvedSdImpl->parameters_.cert_ = string((const char*)certData, certLen);
 			}
 
-			cout << "RESOLVED " << resolvedSdImpl->parameters_.fullname_ 
-					<< " " << resolvedSdImpl->parameters_.hostname_ << endl;
-
 			rr->onAnnouncement_(rr->id_, Announcement::Resolved, rr->sd_, rr->userData_);
 			rr->pimpl_->removeRequest(rr->pimpl_->rrequests_[rr->id_]);
 			rr->pimpl_->rrequests_.erase(rr->id_);
