@@ -250,7 +250,7 @@ int NdnSd::announce(const AdvertiseParameters& parameters,
 	}
 
 	DNSServiceRef dnsServiceRef;
-	auto err = DNSServiceRegister(&dnsServiceRef, 0, 
+	auto err = DNSServiceRegister(&dnsServiceRef, kDNSServiceFlagsNoAutoRename,
 		parameters.interfaceIdx_, pimpl_->uuid_.c_str(), 
 		makeRegType(parameters.protocol_, parameters.subtype_).c_str(),
 		(parameters.domain_.size() ? parameters.domain_.c_str() : nullptr), 

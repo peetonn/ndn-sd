@@ -116,6 +116,7 @@ int main (int argc, char **argv)
 		}
 		else
 		{
+			cout << "ref socket " << DNSServiceRefSockFD(dnsServiceRef) << endl;
 			dnsServiceFdMap[DNSServiceRefSockFD(dnsServiceRef)] = dnsServiceRef;
 		}
 	}

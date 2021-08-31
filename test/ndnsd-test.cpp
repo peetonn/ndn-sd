@@ -24,6 +24,7 @@ void dnsServiceCleanupHelper(DNSServiceRef* ref);
 typedef function<void(uint32_t, DNSServiceFlags, DNSServiceErrorType, string, string, string, void*)> OnDiscoveredServiceHelperFunc;
 map<DNSServiceRef, OnDiscoveredServiceHelperFunc> discoverServiceCallbacks;
 DNSServiceRef* dnsBrowseHelper(string protocol, string subtype, OnDiscoveredServiceHelperFunc fn);
+void dnsProcessEventsHelper(DNSServiceRef* ref);
 
 TEST_CASE( "NDN-SD construction", "[ctor]" ) {
     SECTION("declared as variable")
@@ -681,9 +682,9 @@ TEST_CASE("NDN-SD service announcement", "[announce register]") {
         }
     }
 
-    GIVEN("new NDN-SD service is announced and discovered") {
+    GIVEN("new NDN-SD service is announced") {
 
-        NdnSd sd("uuid-unique");
+        NdnSd sd("uuid-not-unique");
 
         bool regSuccess = false;
         sd.announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
@@ -696,30 +697,189 @@ TEST_CASE("NDN-SD service announcement", "[announce register]") {
         REQUIRE(regSuccess);
 
         WHEN("new service is announced with the same uuid") {
-            NdnSd sd2("uuid-unique");
+            NdnSd sd2("uuid-not-unique");
 
-            bool errorCalled = false;
+            bool reg2Success = false;
             sd2.announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
                 [&](void*)
             {
-                FAIL("registration should fail");
+                reg2Success = true;
             }, 
                 [&](int, int, string, bool dnsError, void*) 
             {
-                errorCalled = true;
-                REQUIRE(dnsError);
+                FAIL("registration should succeed");
             });
-            sd2.run(RUNLOOP_TIMEOUT);
 
-            THEN("registration fails and error callback is called")
+            sd2.run(RUNLOOP_TIMEOUT);
+            sd.run(RUNLOOP_TIMEOUT);
+
+            // it seems that mDNSResponder allows two services with same name on one machine
+            // and does not treat this situation as an error
+            // the service will stay active till the last of the last instance is destroyed
+            THEN("registration succeeds and only one service is discovered")
             {
-                REQUIRE(errorCalled);
+                REQUIRE(reg2Success);
+
+                int called = 0;
+                bool discovered = false;
+                auto ref = dnsBrowseHelper("_udp", "",
+                    [&](uint32_t, DNSServiceFlags flags, DNSServiceErrorType err,
+                        string serviceName, string regtype, string domain,
+                        void*)
+                {
+                    REQUIRE(flags & kDNSServiceFlagsAdd);
+                    REQUIRE_FALSE(flags & kDNSServiceFlagsMoreComing);
+                    discovered = true;
+                    
+                    called += 1;
+                });
+
+                dnsProcessEventsHelper(ref);
+                dnsServiceCleanupHelper(ref);
+
+                REQUIRE(discovered);
+                REQUIRE(called == 1);
             }
         }
     }
 
-    // TODO: announce twice
-    // TODO: announce with invalid args
+    GIVEN("two NDN-SD services with same uuid are announced") {
+
+        shared_ptr<NdnSd> sd1 = make_shared<NdnSd>("uuid-not-unique1");
+        shared_ptr<NdnSd> sd2 = make_shared<NdnSd>("uuid-not-unique1");
+
+        bool reg1Success = false, reg2Success = false;
+        sd1->announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+            [&](void*)
+        {
+            reg1Success = true;
+        }, ndnSdErrorCb);
+        sd2->announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+            [&](void*)
+        {
+            reg2Success = true;
+        }, ndnSdErrorCb);
+
+        sd1->run(RUNLOOP_TIMEOUT);
+        sd2->run(RUNLOOP_TIMEOUT);
+        REQUIRE(reg1Success);
+        REQUIRE(reg2Success);
+
+         // check that only one service is discovered
+            int called = 0;
+            bool discovered = false, removed = false;
+            auto dnsref = dnsBrowseHelper("_udp", "",
+                [&](uint32_t, DNSServiceFlags flags, DNSServiceErrorType err,
+                    string serviceName, string regtype, string domain,
+                    void*)
+            {
+                if (called == 0)
+                {
+                    REQUIRE(flags & kDNSServiceFlagsAdd);
+                    discovered = true;
+                }
+                if (called == 1)
+                {
+                    REQUIRE_FALSE(flags & kDNSServiceFlagsAdd);
+                    removed = true;
+                }
+
+                called += 1;
+            });
+
+            dnsProcessEventsHelper(dnsref);
+            
+            //dnsServiceCleanupHelper(ref);
+
+            REQUIRE(discovered);
+            REQUIRE(called == 1);
+
+        WHEN("one service is destroyed") {
+           sd1.reset();
+
+           THEN("no REMOVE announcement is received until last instance is destroyed")
+           { // check that only one service is discovered
+               dnsProcessEventsHelper(dnsref);
+
+               REQUIRE(called == 1);
+               REQUIRE_FALSE(removed);
+
+               {
+                   sd2.reset();
+                   dnsProcessEventsHelper(dnsref);
+
+                   REQUIRE(called == 2);
+                   REQUIRE(removed);
+               }
+
+               dnsServiceCleanupHelper(dnsref);
+           }
+        }
+    }
+
+    GIVEN("new NDN-SD service is created") {
+
+        NdnSd sd("uuid1");
+
+        WHEN("try to announce with invalid interface index") {
+
+            bool calledError = false;
+            sd.announce({ Proto::UDP, 65535, "", "", nullptr, 41432, "/test/uuid1" },
+                [&](void*)
+            {
+                FAIL("success callback should've not get fired");
+            },
+                [&](int, int code, string, bool, void*)
+            {
+                REQUIRE(code == kDNSServiceErr_BadParam);
+                calledError = true;
+            });
+
+            THEN("error callback will get called")
+            {
+                REQUIRE(calledError);
+            }
+        }
+
+        WHEN("try to announce with invalid port") {
+
+            bool calledError = false;
+            sd.announce({ Proto::UDP, 0, "", "", nullptr, 0, "/test/uuid1" },
+                [&](void*)
+            {
+                FAIL("success callback should've not get fired");
+            },
+                [&](int, int, string, bool, void*)
+            {
+                calledError = true;
+            });
+
+            THEN("error callback will get called")
+            {
+                REQUIRE(calledError);
+            }
+        }
+
+
+        WHEN("announce callback throws an exception") {
+
+            bool calledCb = false;
+            sd.announce({ Proto::UDP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41432, "/test/uuid1" },
+                [&](void*)
+            {
+                calledCb = true;
+                throw runtime_error("some error");
+            }, ndnSdErrorCb);
+
+            THEN("error callback will get called")
+            {
+                REQUIRE_NOTHROW(
+                    sd.run(RUNLOOP_TIMEOUT)
+                );
+                REQUIRE(calledCb);
+            }
+        }
+    }
 }
 
 DNSServiceRef* dnsRegisterHelper(string protocol, string subtype, string uuid,
@@ -835,4 +995,28 @@ DNSServiceRef* dnsBrowseHelper(string protocol, string subtype,
         delete dnsServiceRef;
     }
     return nullptr;
+}
+
+void dnsProcessEventsHelper(DNSServiceRef *ref)
+{
+    if (!ref) return;
+
+    fd_set readfds;
+    FD_ZERO(&readfds);
+    FD_SET(DNSServiceRefSockFD(*ref), &readfds);
+
+    struct timeval tv;
+    tv.tv_sec =0;
+    tv.tv_usec = 500 * 1000;
+
+    int res = select(0, &readfds, (fd_set*)NULL, (fd_set*)NULL, &tv);
+    if (res > 0)
+    {
+        if (FD_ISSET(DNSServiceRefSockFD(*ref), &readfds))
+        {
+            auto err = DNSServiceProcessResult(*ref);
+            if (err)
+                FAIL("dns process events helper result error: " << err);
+        }
+    }
 }
