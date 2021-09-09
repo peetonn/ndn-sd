@@ -45,6 +45,7 @@ find_library(NDNIND_LIBRARY
     ${NDNIND_BIN}
     /usr/lib
     /usr/local/lib
+    ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/lib
     ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/build/ndn-ind/lib
 )
 

@@ -35,9 +35,14 @@ if(NOT APPLE)
     set(BONJOUR_LIBRARIES ${BONJOUR_LIBRARY} )
     set(BONJOUR_FOUND TRUE)
   endif()
+
+  include(FindPackageHandleStandardArgs)
+  find_package_handle_standard_args(Bonjour REQUIRED_VARS BONJOUR_LIBRARIES BONJOUR_INCLUDE_DIR)
+
 else()
   set(BONJOUR_FOUND TRUE)
 endif()
+
 if (CMAKE_SYSTEM_NAME MATCHES Linux)
   # The compatibility layer is needed for the Bonjour record management.
   find_path(AVAHI_INCLUDE_DIR avahi-client/client.h 
@@ -63,10 +68,6 @@ if (CMAKE_SYSTEM_NAME MATCHES Linux)
     set(BONJOUR_FOUND TRUE)
   endif()
 endif()
-
-include(FindPackageHandleStandardArgs)
-
-find_package_handle_standard_args(Bonjour REQUIRED_VARS BONJOUR_LIBRARIES BONJOUR_INCLUDE_DIR)
 
 mark_as_advanced( FORCE
   BONJOUR_INCLUDE_DIR
