@@ -1,4 +1,4 @@
-﻿#include <iostream>
+#include <iostream>
 #include <ndn-sd/ndn-sd.hpp>
 #include "dns_sd.h"
 #include <csignal>
@@ -92,6 +92,8 @@ void signal_handler(int signal)
 int main (int argc, char **argv)
 {
 	
+    int maxFd = 0;
+    
 	cout << "NDN-SD version " << ndnsd::NdnSd::getVersion() << endl;
 
 	{ // register
@@ -118,6 +120,7 @@ int main (int argc, char **argv)
 		{
 			cout << "ref socket " << DNSServiceRefSockFD(dnsServiceRef) << endl;
 			dnsServiceFdMap[DNSServiceRefSockFD(dnsServiceRef)] = dnsServiceRef;
+            maxFd = DNSServiceRefSockFD(dnsServiceRef);
 		}
 	}
 
@@ -133,6 +136,8 @@ int main (int argc, char **argv)
 		else
 		{
 			dnsServiceFdMap[DNSServiceRefSockFD(dnsServiceRef)] = dnsServiceRef;
+            if (DNSServiceRefSockFD(dnsServiceRef) > maxFd)
+                maxFd = DNSServiceRefSockFD(dnsServiceRef);
 		}
 	}
 
@@ -144,7 +149,7 @@ int main (int argc, char **argv)
 		for (auto it : dnsServiceFdMap)
 			FD_SET(it.first, &readfds);
 
-		int res = select(0, &readfds, (fd_set*)NULL, (fd_set*)NULL, 0);
+		int res = select(maxFd+1, &readfds, (fd_set*)NULL, (fd_set*)NULL, 0);
 		if (res > 0)
 		{
 			for (auto it : dnsServiceFdMap)
@@ -156,8 +161,11 @@ int main (int argc, char **argv)
 						cerr << "process result error: " << err;
 				}
 			}
-
 		}
+        else if (res < 0)
+            cerr << "select() error: " << strerror(errno) << endl;
+        else
+            cout << "select() timeout" << endl;
 	}
 
 	for (auto it : dnsServiceFdMap)

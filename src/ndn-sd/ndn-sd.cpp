@@ -175,16 +175,20 @@ int NdnSd::run(uint32_t timeoutMs)
 
 	while (run)
 	{
+        int maxFd = 0;
 		fd_set readfds;
 		FD_ZERO(&readfds);
 
 		for (auto it : pimpl_->fdServiceRefMap_)
+        {
+            maxFd = max(maxFd, it.first);
 			FD_SET(it.first, &readfds);
+        }
 		struct timeval tv;
 		tv.tv_sec = timeoutMs / 1000;
 		tv.tv_usec = (timeoutMs - (timeoutMs / 1000) * 1000) * 1000;
 
-		int res = select(0, &readfds, (fd_set*)nullptr, (fd_set*)nullptr, (timeoutMs ? &tv : 0));
+		int res = select(maxFd+1, &readfds, (fd_set*)nullptr, (fd_set*)nullptr, (timeoutMs ? &tv : 0));
 		if (res > 0)
 		{
 			for (auto it = pimpl_->fdServiceRefMap_.cbegin(), nextIt = it;
