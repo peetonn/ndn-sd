@@ -3,6 +3,9 @@
 #include <map>
 
 #include "dns_sd.h"
+#if __APPLE__
+#include <net/if.h>
+#endif
 
 using namespace std;
 using namespace ndnsd;
@@ -822,26 +825,6 @@ TEST_CASE("NDN-SD service announcement", "[announce register]") {
 
         NdnSd sd("uuid1");
 
-        WHEN("try to announce with invalid interface index") {
-
-            bool calledError = false;
-            sd.announce({ Proto::UDP, 65535, "", "", nullptr, 41432, "/test/uuid1" },
-                [&](void*)
-            {
-                FAIL("success callback should've not get fired");
-            },
-                [&](int, int code, string, bool, void*)
-            {
-                REQUIRE(code == kDNSServiceErr_BadParam);
-                calledError = true;
-            });
-
-            THEN("error callback will get called")
-            {
-                REQUIRE(calledError);
-            }
-        }
-
         WHEN("try to announce with invalid port") {
 
             bool calledError = false;
@@ -1062,7 +1045,7 @@ void dnsProcessEventsHelper(DNSServiceRef *ref)
     tv.tv_sec =0;
     tv.tv_usec = 500 * 1000;
 
-    int res = select(0, &readfds, (fd_set*)NULL, (fd_set*)NULL, &tv);
+    int res = select(DNSServiceRefSockFD(*ref)+1, &readfds, (fd_set*)NULL, (fd_set*)NULL, &tv);
     if (res > 0)
     {
         if (FD_ISSET(DNSServiceRefSockFD(*ref), &readfds))
