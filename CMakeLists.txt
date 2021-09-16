@@ -8,5 +8,5 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
 include(CheckIncludeFiles)
 
 add_subdirectory(src/ndn-sd)
-add_subdirectory(src/mfdexample)
+add_subdirectory(src/ndnshare)
 add_subdirectory(test)
