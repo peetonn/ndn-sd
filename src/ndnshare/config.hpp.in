@@ -1,0 +1,5 @@
+// the configured options and settings for ndnshare executable
+#define NDNSHARE_VERSION "@ndnshare_VERSION@"
+#define NDNSHARE_VERSION_MAJOR @ndnshare_VERSION_MAJOR@
+#define NDNSHARE_VERSION_MINOR @ndnshare_VERSION_MINOR@
+#define NDNSHARE_VERSION_PATCH @ndnshare_VERSION_PATCH@
