@@ -1,4 +1,5 @@
 // the configured options and settings for ndn-sd library
+#define NDNSD_VERSION "@ndn-sd_VERSION@"
 #define NDNSD_VERSION_MAJOR @ndn-sd_VERSION_MAJOR@
 #define NDNSD_VERSION_MINOR @ndn-sd_VERSION_MINOR@
 #define NDNSD_VERSION_PATCH @ndn-sd_VERSION_PATCH@

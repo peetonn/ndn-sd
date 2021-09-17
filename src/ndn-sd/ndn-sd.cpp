@@ -1,5 +1,6 @@
 
 #include "ndn-sd.hpp"
+#include "config.hpp"
 #include "dns_sd.h"
 #include <ndn-ind/interest.hpp>
 #include <map>
@@ -504,7 +505,7 @@ string NdnSd::getFullname() const
 
 string NdnSd::getVersion()
 {
-	return "x.x.x";
+	return NDNSD_VERSION;
 }
 
 // Impl helpers
