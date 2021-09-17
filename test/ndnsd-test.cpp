@@ -745,6 +745,25 @@ TEST_CASE("NDN-SD service announcement", "[announce register]") {
                 REQUIRE(called == 1);
             }
         }
+
+        WHEN("try to announce again on same NdnSd instance") {
+
+            bool calledError = false;
+            sd.announce({ Proto::TCP, kDNSServiceInterfaceIndexLocalOnly, "", "", nullptr, 41433, "/test/uuid1" },
+                [&](void*)
+            {
+                FAIL("success callback should've not get fired");
+            },
+                [&](int, int, string, bool, void*)
+            {
+                calledError = true;
+            });
+
+            THEN("error callback will get called")
+            {
+                REQUIRE(calledError);
+            }
+        }
     }
 
     GIVEN("two NDN-SD services with same uuid are announced") {
