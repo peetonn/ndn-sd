@@ -38,6 +38,15 @@ find_library(NDNIND_TOOLS_LIBRARY
     ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/VisualStudio/ndn-ind/ndn-ind-tools/x64/Release
 )
 
+find_file(NDNIND_TOOLS_DLL
+          "${CMAKE_SHARED_LIBRARY_PREFIX}ndn-ind-tools${CMAKE_SHARED_LIBRARY_SUFFIX}"
+          HINTS
+          "${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind"
+          PATH_SUFFIXES
+          VisualStudio/ndn-ind/x64/Release
+          NO_DEFAULT_PATH
+)
+
 else(WIN32)
 
 find_library(NDNIND_TOOLS_LIBRARY
@@ -57,6 +66,23 @@ find_package_handle_standard_args(ndn-ind-tools REQUIRED_VARS NDNIND_TOOLS_INCLU
 
 if( ndn-ind-tools_FOUND )
   set(NDNIND_TOOLS_INCLUDE_DIRS ${NDNIND_TOOLS_INCLUDE_DIR})
+
+  if(WIN32)
+    add_library(ndn-ind-tools SHARED IMPORTED)
+    set_target_properties(ndn-ind-tools PROPERTIES
+      IMPORTED_LOCATION "${NDNIND_TOOLS_DLL}"
+      IMPORTED_CONFIGURATIONS "RELEASE"
+      IMPORTED_IMPLIB "${NDNIND_TOOLS_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${NDNIND_TOOLS_INCLUDE_DIRS}"
+    )
+  else(WIN32)
+    add_library(ndn-ind-tools STATIC IMPORTED)
+    set_target_properties(ndn-ind-tools PROPERTIES
+      IMPORTED_LOCATION "${NDNIND_TOOLS_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${NDNIND_TOOLS_INCLUDE_DIRS}"
+    )
+  endif()
+
   set(NDNIND_TOOLS_LIBRARIES ${NDNIND_TOOLS_LIBRARY})
   set(NDNIND_TOOLS_FOUND TRUE)
 

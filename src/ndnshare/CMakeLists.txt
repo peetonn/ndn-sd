@@ -1,19 +1,34 @@
 cmake_minimum_required(VERSION 3.10)
 
 set(EXECUTABLE_NAME ndnshare)
-project(${EXECUTABLE_NAME} VERSION 1.0.0)
+project(${EXECUTABLE_NAME} VERSION 0.0.1)
 
 add_executable(${EXECUTABLE_NAME} main.cpp)
 
-# add ndn-sd
+target_include_directories(${EXECUTABLE_NAME}
+                        PRIVATE
+                        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+                    )
+
+target_compile_features(${EXECUTABLE_NAME} PUBLIC cxx_std_17)
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/config.hpp)
+
+# dependencies
+# ndn-sd module
 target_link_libraries(${EXECUTABLE_NAME} ndn-sd)
 
-# add dependencies
+# spdlog
+find_package(spdlog CONFIG REQUIRED)
+target_link_libraries(${EXECUTABLE_NAME} spdlog::spdlog spdlog::spdlog_header_only)
 
 # docopt
 find_package(docopt REQUIRED)
-target_include_directories(${EXECUTABLE_NAME} SYSTEM PUBLIC ${DOCOPT_INCLUDE_DIRS})
-target_link_libraries(${EXECUTABLE_NAME} ${DOCOPT_LIBRARIES})
+target_link_libraries(${EXECUTABLE_NAME} docopt)
+add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD 
+               COMMAND ${CMAKE_COMMAND} -E copy_if_different
+               $<TARGET_FILE:docopt>              
+               $<TARGET_FILE_DIR:${EXECUTABLE_NAME}>)
 
 # fmt
 find_package(fmt REQUIRED PATHS ${CMAKE_SOURCE_DIR}/thirdparty/fmt ${CMAKE_SOURCE_DIR}/thirdparty/fmt/build)
@@ -26,18 +41,27 @@ target_link_libraries(${EXECUTABLE_NAME} fmt::fmt)
 
 # ndn-ind
 find_package(ndn-ind REQUIRED)
-target_include_directories(${EXECUTABLE_NAME} SYSTEM PUBLIC ${NDNIND_INCLUDE_DIRS})
-target_link_libraries(${EXECUTABLE_NAME} ${NDNIND_LIBRARIES})
+target_link_libraries(${EXECUTABLE_NAME} ndn-ind)
+add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD 
+               COMMAND ${CMAKE_COMMAND} -E copy_if_different
+               $<TARGET_FILE:ndn-ind>              
+               $<TARGET_FILE_DIR:${EXECUTABLE_NAME}>)
 
 # ndn-ind-tools
 find_package(ndn-ind-tools REQUIRED)
-target_include_directories(${EXECUTABLE_NAME} SYSTEM PUBLIC ${NDNIND_TOOLS_INCLUDE_DIRS})
-target_link_libraries(${EXECUTABLE_NAME} ${NDNIND_TOOLS_LIBRARIES})
+target_link_libraries(${EXECUTABLE_NAME} ndn-ind-tools)
+add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD 
+               COMMAND ${CMAKE_COMMAND} -E copy_if_different
+               $<TARGET_FILE:ndn-ind-tools>              
+               $<TARGET_FILE_DIR:${EXECUTABLE_NAME}>)
 
 # cnl-cpp
 find_package(cnl-cpp REQUIRED)
-target_include_directories(${EXECUTABLE_NAME} SYSTEM PUBLIC ${CNLCPP_INCLUDE_DIRS})
-target_link_libraries(${EXECUTABLE_NAME} ${CNLCPP_LIBRARIES})
+target_link_libraries(${EXECUTABLE_NAME} cnl-cpp)
+add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD 
+               COMMAND ${CMAKE_COMMAND} -E copy_if_different
+               $<TARGET_FILE:cnl-cpp>              
+               $<TARGET_FILE_DIR:${EXECUTABLE_NAME}>)
 
 # windows-specific
 if(WIN32)

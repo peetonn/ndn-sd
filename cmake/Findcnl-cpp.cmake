@@ -37,6 +37,15 @@ find_library(CNLCPP_LIBRARY
     ${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp/VisualStudio/cnl-cpp/x64/Release
 )
 
+find_file(CNLCPP_DLL
+          "${CMAKE_SHARED_LIBRARY_PREFIX}cnl-cpp${CMAKE_SHARED_LIBRARY_SUFFIX}"
+          HINTS
+          "${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp"
+          PATH_SUFFIXES
+          VisualStudio/cnl-cpp/x64/Release
+          NO_DEFAULT_PATH
+)
+
 else(WIN32)
 
 find_library(CNLCPP_LIBRARY
@@ -56,6 +65,23 @@ find_package_handle_standard_args(cnl-cpp REQUIRED_VARS CNLCPP_INCLUDE_DIR CNLCP
 
 if( cnl-cpp_FOUND )
   set(CNLCPP_INCLUDE_DIRS ${CNLCPP_INCLUDE_DIR})
+
+  if(WIN32)
+    add_library(cnl-cpp SHARED IMPORTED)
+    set_target_properties(cnl-cpp PROPERTIES
+      IMPORTED_LOCATION "${CNLCPP_DLL}"
+      IMPORTED_CONFIGURATIONS "RELEASE"
+      IMPORTED_IMPLIB "${CNLCPP_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${CNLCPP_INCLUDE_DIRS}"
+    )
+  else(WIN32)
+    add_library(cnl-cpp STATIC IMPORTED)
+    set_target_properties(cnl-cpp PROPERTIES
+      IMPORTED_LOCATION "${CNLCPP_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${CNLCPP_INCLUDE_DIRS}"
+    )
+  endif()
+
   set(CNLCPP_LIBRARIES ${CNLCPP_LIBRARY})
   set(CNLCPP_FOUND TRUE)
 
