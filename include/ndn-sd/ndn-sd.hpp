@@ -1,3 +1,5 @@
+#ifndef __ndn_sd_hpp__
+#define __ndn_sd_hpp__
 
 #include <string>
 #include <ndn-ind/interest.hpp>
@@ -14,6 +16,15 @@ namespace ndnsd
         UDP = 1,
         TCP = 1 << 1
     };
+    inline std::ostream& operator<< (std::ostream& os, Proto p)
+    {
+        switch (p)
+        {
+        case Proto::TCP: return os << "TCP";
+        case Proto::UDP: return os << "UDP";
+        default: return os << "protocol {" << int(p) << '}';
+        }
+    }
 
     // service browsing/resolving announcements
     enum class Announcement {
@@ -21,6 +32,16 @@ namespace ndnsd
         Removed,
         Resolved
     };
+    inline std::ostream& operator<< (std::ostream& os, Announcement a)
+    {
+        switch (a)
+        {
+        case Announcement::Added: return os << "Added";
+        case Announcement::Removed: return os << "Removed";
+        case Announcement::Resolved: return os << "Resolved";
+        default: return os << "announcement {" << int(a) << '}';
+        }
+    }
 
     typedef std::function<void(int, Announcement, std::shared_ptr<const NdnSd>, void*)> OnServiceAnnouncement;
     typedef OnServiceAnnouncement OnResolvedService;
@@ -92,3 +113,5 @@ namespace ndnsd
         std::shared_ptr<Impl> pimpl_;
     };
 }
+
+#endif // !__ndn_sd_hpp__

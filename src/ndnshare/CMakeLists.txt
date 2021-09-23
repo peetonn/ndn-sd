@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 set(EXECUTABLE_NAME ndnshare)
 project(${EXECUTABLE_NAME} VERSION 0.0.1)
 
-add_executable(${EXECUTABLE_NAME} main.cpp)
+add_executable(${EXECUTABLE_NAME} main.cpp logging.hpp)
 
 target_include_directories(${EXECUTABLE_NAME}
                         PRIVATE
