@@ -44,14 +44,15 @@ find_library(DOCOPT_IMPLIB_DEBUG
     ${CMAKE_SOURCE_DIR}/thirdparty/docopt.cpp/Debug
     ${CMAKE_SOURCE_DIR}/thirdparty/docopt.cpp/build/Debug
 )
-find_file(DOCOPT_DLL_DEBUG
-          "${CMAKE_SHARED_LIBRARY_PREFIX}docopt${CMAKE_SHARED_LIBRARY_SUFFIX}"
-          HINTS
-          "${CMAKE_SOURCE_DIR}/thirdparty/docopt.cpp"
-          PATH_SUFFIXES
-          Debug build/Debug
-          NO_DEFAULT_PATH
-)
+
+if (DEFINED DOCOPT_IMPLIB_RELEASE)
+  set(DOCOPT_IMPLIB ${DOCOPT_IMPLIB_RELEASE})
+else()
+  if (DEFINED DOCOPT_IMPLIB_DEBUG)
+    set(DOCOPT_IMPLIB ${DOCOPT_IMPLIB_DEBUG})
+  endif()
+endif()
+
 find_file(DOCOPT_DLL_RELEASE
           "${CMAKE_SHARED_LIBRARY_PREFIX}docopt${CMAKE_SHARED_LIBRARY_SUFFIX}"
           HINTS
@@ -60,9 +61,25 @@ find_file(DOCOPT_DLL_RELEASE
           Release build/Release
           NO_DEFAULT_PATH
 )
+find_file(DOCOPT_DLL_DEBUG
+          "${CMAKE_SHARED_LIBRARY_PREFIX}docopt${CMAKE_SHARED_LIBRARY_SUFFIX}"
+          HINTS
+          "${CMAKE_SOURCE_DIR}/thirdparty/docopt.cpp"
+          PATH_SUFFIXES
+          Debug build/Debug
+          NO_DEFAULT_PATH
+)
+
+if (DEFINED DOCOPT_DLL_RELEASE)
+  set(DOCOPT_DLL ${DOCOPT_DLL_RELEASE})
+else()
+  if (DEFINED DOCOPT_DLL_DEBUG)
+    set(DOCOPT_DLL ${DOCOPT_DLL_DEBUG})
+  endif()
+endif()
 
 find_package_handle_standard_args(docopt REQUIRED_VARS DOCOPT_INCLUDE_DIR 
-                  DOCOPT_LIBRARY_RELEASE DOCOPT_LIBRARY_DEBUG)
+                  DOCOPT_IMPLIB DOCOPT_DLL)
 
 else(WIN32)
 
@@ -84,17 +101,26 @@ if( docopt_FOUND )
   set(DOCOPT_INCLUDE_DIRS ${DOCOPT_INCLUDE_DIR})
   
   if(WIN32)
-    set(DOCOPT_LIBRARIES_RELEASE ${DOCOPT_LIBRARY_RELEASE})
+    set(DOCOPT_LIBRARIES_RELEASE ${DOCOPT_IMPLIB_RELEASE})
     set(DOCOPT_LIBRARIES_DEBUG ${DOCOPT_LIBRARY_DEBUG})
     add_library(docopt SHARED IMPORTED)
     set_target_properties(docopt PROPERTIES
-      IMPORTED_LOCATION "${DOCOPT_DLL_RELEASE}"
-      IMPORTED_LOCATION_DEBUG "${DOCOPT_DLL_DEBUG}"
+      IMPORTED_LOCATION "${DOCOPT_DLL}"
       IMPORTED_CONFIGURATIONS "RELEASE;DEBUG"
-      IMPORTED_IMPLIB "${DOCOPT_LIBRARY_RELEASE}"
-      IMPORTED_IMPLIB_DEBUG "${DOCOPT_LIBRARY_DEBUG}"
+      IMPORTED_IMPLIB "${DOCOPT_IMPLIB}"
       INTERFACE_INCLUDE_DIRECTORIES "${DOCOPT_INCLUDE_DIRS}"
     )
+    if (DEFINED DOCOPT_DLL_DEBUG)
+      set_target_properties(docopt PROPERTIES
+        IMPORTED_LOCATION_DEBUG "${DOCOPT_DLL_DEBUG}"
+      )
+    endif()
+    if (DEFINED DOCOPT_IMPLIB_DEBUG)
+      set_target_properties(docopt PROPERTIES
+        IMPORTED_IMPLIB_DEBUG "${DOCOPT_IMPLIB_DEBUG}"
+      )
+    endif()
+
   else(WIN32)
     set(DOCOPT_LIBRARIES ${DOCOPT_LIBRARY})
     add_library(docopt SHARED IMPORTED)
