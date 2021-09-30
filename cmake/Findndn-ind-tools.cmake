@@ -30,15 +30,31 @@ find_path(
 
 if(WIN32)
 
-find_library(NDNIND_TOOLS_LIBRARY
+find_library(NDNIND_TOOLS_IMPLIB_RELEASE
   NAMES ndn-ind-tools
   PATHS
     ${NDNIND_TOOLS_BIN}
     ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/VisualStudio/ndn-ind/x64/Release
-    ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/VisualStudio/ndn-ind/ndn-ind-tools/x64/Release
+)
+find_library(NDNIND_TOOLS_IMPLIB_DEBUG
+  NAMES ndn-ind-tools
+  PATHS
+    ${NDNIND_TOOLS_BIN}
+    ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/VisualStudio/ndn-ind/x64/Debug
 )
 
-find_file(NDNIND_TOOLS_DLL
+if (DEFINED NDNIND_TOOLS_IMPLIB_RELEASE)
+  set(NDNIND_TOOLS_IMPLIB ${NDNIND_TOOLS_IMPLIB_RELEASE})
+  if (NOT NDNIND_TOOLS_IMPLIB_DEBUG)
+      set(NDNIND_TOOLS_IMPLIB_DEBUG ${NDNIND_TOOLS_IMPLIB_RELEASE})
+  endif()
+else()
+  if (DEFINED NDNIND_TOOLS_IMPLIB_DEBUG)
+    set(NDNIND_TOOLS_IMPLIB ${NDNIND_TOOLS_IMPLIB_DEBUG})
+  endif()
+endif()
+
+find_file(NDNIND_TOOLS_DLL_RELEASE
           "${CMAKE_SHARED_LIBRARY_PREFIX}ndn-ind-tools${CMAKE_SHARED_LIBRARY_SUFFIX}"
           HINTS
           "${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind"
@@ -46,6 +62,27 @@ find_file(NDNIND_TOOLS_DLL
           VisualStudio/ndn-ind/x64/Release
           NO_DEFAULT_PATH
 )
+find_file(NDNIND_TOOLS_DLL_DEBUG
+          "${CMAKE_SHARED_LIBRARY_PREFIX}ndn-ind-tools${CMAKE_SHARED_LIBRARY_SUFFIX}"
+          HINTS
+          "${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind"
+          PATH_SUFFIXES
+          VisualStudio/ndn-ind/x64/Debug
+          NO_DEFAULT_PATH
+)
+
+if (DEFINED NDNIND_TOOLS_DLL_RELEASE)
+  set(NDNIND_TOOLS_DLL ${NDNIND_TOOLS_DLL_RELEASE})
+  if (NOT NDNIND_TOOLS_DLL_DEBUG)
+      set(NDNIND_TOOLS_DLL_DEBUG ${NDNIND_TOOLS_DLL_RELEASE})
+  endif()
+else()
+  if (DEFINED NDNIND_TOOLS_DLL_DEBUG)
+    set(NDNIND_TOOLS_DLL ${NDNIND_TOOLS_DLL_DEBUG})
+  endif()
+endif()
+
+find_package_handle_standard_args(ndn-ind-tools REQUIRED_VARS NDNIND_TOOLS_INCLUDE_DIR NDNIND_TOOLS_IMPLIB NDNIND_TOOLS_DLL_RELEASE)
 
 else(WIN32)
 
@@ -59,28 +96,43 @@ find_library(NDNIND_TOOLS_LIBRARY
     ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/build/ndn-ind/lib
 )
 
+find_package_handle_standard_args(ndn-ind-tools REQUIRED_VARS NDNIND_TOOLS_INCLUDE_DIR NDNIND_TOOLS_LIBRARY)
+
 endif(WIN32)
 
-
-find_package_handle_standard_args(ndn-ind-tools REQUIRED_VARS NDNIND_TOOLS_INCLUDE_DIR NDNIND_TOOLS_LIBRARY)
 
 if( ndn-ind-tools_FOUND )
   set(NDNIND_TOOLS_INCLUDE_DIRS ${NDNIND_TOOLS_INCLUDE_DIR})
 
   if(WIN32)
+    set(NDNIND_TOOLS_LIBRARIES_RELEASE ${NDNIND_TOOLS_IMPLIB_RELEASE})
+    set(NDNIND_TOOLS_LIBRARIES_DEBUG ${NDNIND_TOOLS_LIBRARY_DEBUG})
     add_library(ndn-ind-tools SHARED IMPORTED)
     set_target_properties(ndn-ind-tools PROPERTIES
       IMPORTED_LOCATION "${NDNIND_TOOLS_DLL}"
-      IMPORTED_CONFIGURATIONS "RELEASE"
-      IMPORTED_IMPLIB "${NDNIND_TOOLS_LIBRARY}"
+      IMPORTED_CONFIGURATIONS "RELEASE;DEBUG"
+      IMPORTED_IMPLIB "${NDNIND_TOOLS_IMPLIB}"
       INTERFACE_INCLUDE_DIRECTORIES "${NDNIND_TOOLS_INCLUDE_DIRS}"
     )
+    if (DEFINED NDNIND_TOOLS_DLL_DEBUG)
+      set_target_properties(ndn-ind-tools PROPERTIES
+        IMPORTED_LOCATION_DEBUG "${NDNIND_TOOLS_DLL_DEBUG}"
+      )
+    endif()
+    if (DEFINED NDNIND_TOOLS_IMPLIB_DEBUG)
+      set_target_properties(ndn-ind-tools PROPERTIES
+        IMPORTED_IMPLIB_DEBUG "${NDNIND_TOOLS_IMPLIB_DEBUG}"
+      )
+    endif()
+
   else(WIN32)
+    
     add_library(ndn-ind-tools STATIC IMPORTED)
     set_target_properties(ndn-ind-tools PROPERTIES
       IMPORTED_LOCATION "${NDNIND_TOOLS_LIBRARY}"
       INTERFACE_INCLUDE_DIRECTORIES "${NDNIND_TOOLS_INCLUDE_DIRS}"
     )
+
   endif()
 
   set(NDNIND_TOOLS_LIBRARIES ${NDNIND_TOOLS_LIBRARY})

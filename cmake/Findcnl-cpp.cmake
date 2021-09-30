@@ -30,14 +30,32 @@ find_path(
 
 if(WIN32)
 
-find_library(CNLCPP_LIBRARY
+find_library(CNLCPP_IMPLIB_RELEASE
   NAMES cnl-cpp
   PATHS
     ${CNLCPP_BIN}
     ${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp/VisualStudio/cnl-cpp/x64/Release
 )
+find_library(CNLCPP_IMPLIB_DEBUG
+  NAMES cnl-cpp
+  PATHS
+    ${CNLCPP_BIN}
+    ${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp/VisualStudio/cnl-cpp/x64/Debug
+)
 
-find_file(CNLCPP_DLL
+if (DEFINED CNLCPP_IMPLIB_RELEASE)
+  set(CNLCPP_IMPLIB ${CNLCPP_IMPLIB_RELEASE})
+
+  if (NOT CNLCPP_IMPLIB_DEBUG)
+    set(CNLCPP_IMPLIB_DEBUG ${CNLCPP_IMPLIB_RELEASE})
+  endif()
+else()
+  if (DEFINED CNLCPP_IMPLIB_DEBUG)
+    set(CNLCPP_IMPLIB ${CNLCPP_IMPLIB_DEBUG})
+  endif()
+endif()
+
+find_file(CNLCPP_DLL_RELEASE
           "${CMAKE_SHARED_LIBRARY_PREFIX}cnl-cpp${CMAKE_SHARED_LIBRARY_SUFFIX}"
           HINTS
           "${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp"
@@ -45,6 +63,27 @@ find_file(CNLCPP_DLL
           VisualStudio/cnl-cpp/x64/Release
           NO_DEFAULT_PATH
 )
+find_file(CNLCPP_DLL_DEBUG
+          "${CMAKE_SHARED_LIBRARY_PREFIX}cnl-cpp${CMAKE_SHARED_LIBRARY_SUFFIX}"
+          HINTS
+          "${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp"
+          PATH_SUFFIXES
+          VisualStudio/cnl-cpp/x64/Debug
+          NO_DEFAULT_PATH
+)
+
+if (DEFINED CNLCPP_DLL_RELEASE)
+  set(CNLCPP_DLL ${CNLCPP_DLL_RELEASE})
+  if (NOT CNLCPP_DLL_DEBUG)
+    set(CNLCPP_DLL_DEBUG ${CNLCPP_DLL_RELEASE})
+  endif()
+else()
+  if (DEFINED CNLCPP_DLL_DEBUG)
+    set(CNLCPP_DLL ${CNLCPP_DLL_DEBUG})
+  endif()
+endif()
+
+find_package_handle_standard_args(cnl-cpp REQUIRED_VARS CNLCPP_INCLUDE_DIR CNLCPP_IMPLIB CNLCPP_DLL)
 
 else(WIN32)
 
@@ -58,22 +97,33 @@ find_library(CNLCPP_LIBRARY
     ${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp/build/cnl-cpp/lib
 )
 
-endif(WIN32)
-
-
 find_package_handle_standard_args(cnl-cpp REQUIRED_VARS CNLCPP_INCLUDE_DIR CNLCPP_LIBRARY)
+
+endif(WIN32)
 
 if( cnl-cpp_FOUND )
   set(CNLCPP_INCLUDE_DIRS ${CNLCPP_INCLUDE_DIR})
 
   if(WIN32)
+    set(CNLCPP_LIBRARIES_RELEASE ${CNLCPP_IMPLIB_RELEASE})
+    set(CNLCPP_LIBRARIES_DEBUG ${CNLCPP_LIBRARY_DEBUG})
     add_library(cnl-cpp SHARED IMPORTED)
     set_target_properties(cnl-cpp PROPERTIES
       IMPORTED_LOCATION "${CNLCPP_DLL}"
-      IMPORTED_CONFIGURATIONS "RELEASE"
-      IMPORTED_IMPLIB "${CNLCPP_LIBRARY}"
+      IMPORTED_CONFIGURATIONS "RELEASE;DEBUG"
+      IMPORTED_IMPLIB "${CNLCPP_IMPLIB}"
       INTERFACE_INCLUDE_DIRECTORIES "${CNLCPP_INCLUDE_DIRS}"
     )
+    if (DEFINED CNLCPP_DLL_DEBUG)
+      set_target_properties(cnl-cpp PROPERTIES
+        IMPORTED_LOCATION_DEBUG "${CNLCPP_DLL_DEBUG}"
+      )
+    endif()
+    if (DEFINED CNLCPP_IMPLIB_DEBUG)
+      set_target_properties(cnl-cpp PROPERTIES
+        IMPORTED_IMPLIB_DEBUG "${CNLCPP_IMPLIB_DEBUG}"
+      )
+    endif()
   else(WIN32)
     add_library(cnl-cpp STATIC IMPORTED)
     set_target_properties(cnl-cpp PROPERTIES
