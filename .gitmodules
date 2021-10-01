@@ -1,3 +1,6 @@
 [submodule "thirdparty/ndn-ind"]
 	path = thirdparty/ndn-ind
 	url = https://github.com/operantnetworks/ndn-ind
+[submodule "thirdparty/cli"]
+	path = thirdparty/cli
+	url = https://github.com/daniele77/cli.git
