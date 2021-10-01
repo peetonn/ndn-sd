@@ -1,28 +1,34 @@
-#include <iostream>
+// TODO: add copyright
+
 #include <csignal>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <map>
+#include <thread>
+
+#include <docopt.h>
+#include <ndn-ind/face.hpp>
+#include <cnl-cpp/namespace.hpp>
+#include <cnl-cpp/generalized-object/generalized-object-handler.hpp>
+#include <cli/cli.h>
+#include <cli/loopscheduler.h>
+#include <cli/clilocalsession.h>
+
+#include <ndn-sd/ndn-sd.hpp>
 
 #include "config.hpp"
 #include "logging.hpp"
+#include "ndnapp.hpp"
+#include "mime.hpp"
+#include "uuid.hpp"
 
-#include <docopt.h>
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <fmt/color.h>
-#include <fmt/ostream.h>
-#include <fmt/ranges.h>
 
-#include <ndn-ind/face.hpp>
-#include <ndn-ind/transport/udp-transport.hpp>
-#include <ndn-ind/transport/tcp-transport.hpp>
-#include <ndn-ind-tools/micro-forwarder/micro-forwarder.hpp>
-#include <cnl-cpp/namespace.hpp>
-
-#include <ndn-sd/ndn-sd.hpp>
 
 using namespace std;
 using namespace ndnsd;
 using namespace ndn;
+using namespace cnl_cpp;
 
 static const char USAGE[] =
 //R"(ndnshare.
@@ -82,57 +88,6 @@ R"(ndnshare.
 //      --drifting    Drifting mine.
 //)";
 
-// uuid v4 generation
-#include <random>
-#include <sstream>
-#include <algorithm>
-#include <iostream>
-#include <random>
-
-namespace uuid {
-
-    auto randomlySeededMersenneTwister() {
-        // Magic number 624: The number of unsigned ints the MT uses as state
-        std::vector<unsigned int> random_data(624);
-        std::random_device source;
-        std::generate(begin(random_data), end(random_data), [&]() {return source(); });
-        std::seed_seq seeds(begin(random_data), end(random_data));
-        std::mt19937 seededEngine(seeds);
-        return seededEngine;
-    }
-
-    static std::mt19937                    gen(randomlySeededMersenneTwister());
-    static std::uniform_int_distribution<> dis(0, 15);
-    static std::uniform_int_distribution<> dis2(8, 11);
-
-    std::string generate_uuid_v4() {
-        std::stringstream ss;
-        int i;
-        ss << std::hex;
-        for (i = 0; i < 8; i++) {
-            ss << dis(gen);
-        }
-        ss << "-";
-        for (i = 0; i < 4; i++) {
-            ss << dis(gen);
-        }
-        ss << "-4";
-        for (i = 0; i < 3; i++) {
-            ss << dis(gen);
-        }
-        ss << "-";
-        ss << dis2(gen);
-        for (i = 0; i < 3; i++) {
-            ss << dis(gen);
-        }
-        ss << "-";
-        for (i = 0; i < 12; i++) {
-            ss << dis(gen);
-        };
-        return ss.str();
-    }
-}
-
 vector<Proto> loadProtocols(const map<string, docopt::value>& args);
 NdnSd::AdvertiseParameters loadParameters(const string& instanceId, const map<string, docopt::value>& args);
 
@@ -143,260 +98,86 @@ void signal_handler(int signal)
     NLOG_DEBUG("signal caught");
 }
 
-class App {
+#include "mime.hpp"
+class FilePublisher {
 public:
-    typedef std::function<void(const std::shared_ptr<const ndnsd::NdnSd>&)> OnInstanceAnnouncement;
-    typedef OnInstanceAnnouncement OnInstanceAdd;
-    typedef OnInstanceAnnouncement OnInstanceRemove;
-
-    App(std::string appName, std::string id, const std::shared_ptr<spdlog::logger>& logger, 
-        bool filterInterface = true) 
-        : appName_(appName)
-        , instanceId_(id)
+    FilePublisher(std::string rootPath, std::string prefix, 
+        ndn::Face *face, ndn::KeyChain* keyChain,
+        std::shared_ptr<spdlog::logger> logger)
+        : rootPath_(rootPath)
+        , prefix_(prefix, keyChain)
+        , prefixRegisterFailure_(false)
         , logger_(logger)
-        , mfd_(ndntools::MicroForwarder::get())
-        , filterInterface_(filterInterface)
-    {}
-    ~App() {}
-
-    void setAddInstanceCallback(OnInstanceAdd onInstanceAdd) {
-        onInstanceAdd_ = onInstanceAdd;
+    {
+        prefix_.setFace(face, [this](auto prefix) {
+            logger_->error("failed to register prefix {}", prefix->toUri());
+            prefixRegisterFailure_ = true;
+        });
+        prefix_.addOnObjectNeeded(bind(&FilePublisher::onObjectNeeded, this, 
+            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
     }
-    void setRemoveInstanceCallback(OnInstanceRemove onInstanceRemove) {
-        onInstanceRemove_ = onInstanceRemove;
-    }
+    ~FilePublisher() {}
 
-    void setup(const std::vector<ndnsd::Proto>& protocols,
-        const ndnsd::NdnSd::AdvertiseParameters& params);
-    void processEvents();
+    void processEvents() {
+        if (prefixRegisterFailure_)
+            throw std::runtime_error("failed to register prefix " + prefix_.getName().toUri());
+    }
 
 private:
-    std::string appName_;
-    std::string instanceId_;
+    bool prefixRegisterFailure_;
+    std::string rootPath_;
     std::shared_ptr<spdlog::logger> logger_;
-    bool filterInterface_;
-    std::set<std::string> discoveredInstances_;
-    ndntools::MicroForwarder* mfd_;
-    std::vector<ndnsd::Proto> protocols_;
-    ndnsd::NdnSd::AdvertiseParameters params_;
-    std::vector<std::shared_ptr<ndnsd::NdnSd> > ndnsds_;
-    OnInstanceAdd onInstanceAdd_;
-    OnInstanceRemove onInstanceRemove_;
+    cnl_cpp::Namespace prefix_;
 
-    void setupMicroforwarder();
-    void setupNdnSd();
-    void setupKeyChain(){}
-
-    void addRoute(const std::shared_ptr<const ndnsd::NdnSd>& sd);
-    void removeRoute(const std::shared_ptr<const ndnsd::NdnSd>& sd);
-
-    void printAppInfo();
+    bool onObjectNeeded(cnl_cpp::Namespace&, cnl_cpp::Namespace& neededNamespace, uint64_t);
 };
 
-void App::setup(const vector<Proto>& protocols, const NdnSd::AdvertiseParameters& params)
+bool FilePublisher::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespace, uint64_t callbackId)
 {
-    protocols_ = protocols;
-    params_ = params;
+    assert(nmspc.getName().compare(neededNamespace.getName()) == -1);
+    Name fileSuffix = neededNamespace.getName().getSubName(nmspc.getName().size());
+    
+    logger_->trace("request for {}", fileSuffix.toUri());
 
-    setupMicroforwarder();
-    printAppInfo();
+    filesystem::path filePath(rootPath_);
+    filePath /= fileSuffix.toUri();
 
-    setupNdnSd();
-    setupKeyChain();
-}
-
-void App::setupMicroforwarder()
-{
-    try
+    if (filesystem::exists(filePath))
     {
-        auto udpTransport = ndn::ptr_lib::make_shared<ndn::UdpTransport>();
-        bool res = mfd_->addChannel(udpTransport,
-            ndn::ptr_lib::make_shared<ndn::UdpTransport::ConnectionInfo>("", 0));
+        Namespace& fileNamespace = nmspc[fileSuffix];
+        MetaInfo fileMeta;
+        //fileMeta.setFreshnessPeriod(1000); // TODO: what freshness to use
+        //fileNamespace.setNewDataMetaInfo(fileMeta);
 
-        if (!res)
-            logger_->error("failed to add UDP listen channel");
+        // TODO: this should be refactored for huge files (can't read all into memory)
+        ifstream file(filePath, ios::binary | ios::ate);
+        streamsize size = file.tellg();
+        file.seekg(0, ios::beg);
+        ptr_lib::shared_ptr<vector<uint8_t>> fileContents = ptr_lib::make_shared<vector<uint8_t>>(size);
 
-        params_.port_ = udpTransport->getBoundPort();
-
-        // TODO: remove this in production
-        protocols_.clear();
-        protocols_.push_back(Proto::UDP);
-    }
-    catch (exception& e)
-    {
-        run = false;
-        NLOG_ERROR("caught exception setting up microforwarder: {}", e.what());
-    }
-}
-
-void App::setupNdnSd()
-{
-    logger_->info("announcing services...");
-    for (auto p : { Proto::TCP, Proto::UDP })
-    {
-        NdnSd::AdvertiseParameters prm = params_;
-        prm.protocol_ = p;
-        shared_ptr<NdnSd> s = make_shared<NdnSd>(instanceId_);
-
-        if (find(protocols_.begin(), protocols_.end(), p) != protocols_.end())
+        if (file.read((char*)fileContents->data(), size))
         {
-            s->announce(prm,
-                [s, this](void*)
-            {
-                logger_->info("announce {}/{} iface {} {}:{} -- {}", s->getUuid(), s->getProtocol(),
-                    s->getInterface(), s->getDomain(), s->getPort(), s->getPrefix());
-            },
-                [s, this](int reqId, int errCode, std::string msg, bool, void*)
-            {
-                run = false;
-                logger_->error("announce error {}/{}: {} - {}", s->getUuid(), s->getProtocol(), errCode, msg);
-            });
+            Blob fileBlob(fileContents, false);
+            GeneralizedObjectHandler handler;
+            handler.setObject(fileNamespace, fileBlob, mime::content_type(filePath.extension().string()));
+
+            logger_->info("published {}", filePath.string());
+
+            return true;
         }
-
-        // TODO: browse constraints -- shall browse with empty subtype or our subtype?
-        NdnSd::BrowseConstraints cnstr = static_cast<NdnSd::BrowseConstraints>(prm);
-        s->browse(cnstr,
-            [s, this](int, Announcement a, shared_ptr<const NdnSd> sd, void*)
+        else
         {
-            if (a == Announcement::Added)
-            {
-                logger_->info("add {}/{} iface {}", sd->getUuid(), sd->getProtocol(), sd->getInterface());
-
-                if (filterInterface_ && discoveredInstances_.count(sd->getUuid()))
-                    logger_->warn("iface filtering is ON: skip duplicate {} on iface {}", sd->getUuid(), sd->getInterface());
-                else
-                {
-                    discoveredInstances_.insert(sd->getUuid());
-
-                    s->resolve(sd,
-                        [this](int, Announcement a, shared_ptr<const NdnSd> sd, void*)
-                    {
-                        if (a == Announcement::Resolved)
-                        {
-                            logger_->info("resolve {} iface {} {}://{}:{} -- {}", sd->getUuid(), sd->getInterface(),
-                                sd->getProtocol(), sd->getHostname(), sd->getPort(), sd->getPrefix());
-
-                            addRoute(sd);
-
-                            try {
-
-                                if (onInstanceAdd_)
-                                    onInstanceAdd_(sd);
-                            }
-                            catch (exception& e)
-                            {
-                                logger_->error("caught exception while calling user callback: {}", e.what());
-                            }
-                        }
-                    },
-                        [sd](int reqId, int errCode, std::string msg, bool ismDns, void*)
-                    {
-                        NLOG_ERROR("resolve error {} (is mDNS {}): {} - {}", sd->getUuid(),
-                            ismDns, errCode, msg);
-                    });
-                }
-            }
-
-            if (a == Announcement::Removed)
-            {
-                if (discoveredInstances_.count(sd->getUuid()))
-                {
-                    logger_->info("remove {0}/{1}", sd->getUuid(), sd->getProtocol());
-                    
-                    removeRoute(sd);
-                    discoveredInstances_.erase(sd->getUuid());
-
-                    try {
-                        if (onInstanceRemove_)
-                            onInstanceRemove_(sd);
-                    }
-                    catch (exception& e)
-                    {
-                        logger_->error("caught exception while calling user callback: {}", e.what());
-                    }
-                }
-            }
-        },
-            [this](int reqId, int errCode, std::string msg, bool ismDns, void*)
-        {
-            logger_->info("add error (is mDNS {}): {} - {}", ismDns, errCode, msg);
-        });
-
-        ndnsds_.push_back(s);
-    }
-}
-
-void App::processEvents()
-{
-    mfd_->processEvents();
-
-    for (auto s : ndnsds_)
-        s->run(1);
-}
-
-void App::printAppInfo()
-{
-    fmt::print(R"(
-    {} v{}
-        instance id {}
-        announce NDN service: {}, subtype {}
-        prefix {}
-        listen port {}
-
-)",
-appName_,
-fmt::format(fmt::emphasis::bold, "{}", NDNSHARE_VERSION),
-fmt::format(fmt::emphasis::bold, "{}", instanceId_),
-fmt::format(fmt::emphasis::bold, "{}", protocols_), params_.subtype_,
-fmt::format(fmt::emphasis::bold, "{}", params_.prefix_),
-fmt::format(fmt::emphasis::bold, "{}", params_.port_)
-);
-}
-
-void App::addRoute(const shared_ptr<const NdnSd>& sd)
-{
-    if (sd->getPrefix().size())
-    {
-        // TODO: verify instance here
-        //if (verifyInstance(sd->getCertificate()))
-        {
-            string hostname(sd->getHostname());
-            string uri = sd->getProtocol() == Proto::TCP ? "tcp://" : "udp://";
-            uri += hostname + ":" + to_string(sd->getPort());
-
-            ptr_lib::shared_ptr<Transport> t;
-            if (sd->getProtocol() == Proto::TCP)
-                t = ptr_lib::make_shared<TcpTransport>();
-            else
-                t = ptr_lib::make_shared<UdpTransport>();
-
-            ptr_lib::shared_ptr<Transport::ConnectionInfo> ci;
-            if (sd->getProtocol() == Proto::TCP)
-                ci = ndn::ptr_lib::make_shared<TcpTransport::ConnectionInfo>(hostname.c_str(), sd->getPort());
-            else
-                ci = ndn::ptr_lib::make_shared<UdpTransport::ConnectionInfo>(hostname.c_str(), sd->getPort());
-
-            int faceId = mfd_->addFace(uri, t, ci);
-            if (mfd_->addRoute(Name(sd->getPrefix()), faceId))
-            {
-                logger_->info("add route {} face {} id {} ", sd->getPrefix(), uri, sd->getUuid());
-            }
-            else
-            {
-                logger_->error("failed to add route {} face {} instance {}", sd->getPrefix(), uri, sd->getUuid());
-            }
+            logger_->error("failed to read file {}", filePath.string());
         }
     }
     else
     {
-        logger_->warn("instance {} has empty prefix. no route created", sd->getUuid());
+        logger_->warn("file {} does not exist", filePath.string());
     }
+
+    return false;
 }
 
-void App::removeRoute(const shared_ptr<const NdnSd>& sd)
-{
-
-}
 
 int main (int argc, char **argv)
 {
@@ -426,7 +207,7 @@ int main (int argc, char **argv)
     vector<Proto> protocols = loadProtocols(args);
     NdnSd::AdvertiseParameters params = loadParameters(instanceId, args);
 
-    App app("ndnshare", instanceId, spdlog::default_logger());
+    ndnapp::App app("ndnshare", instanceId, spdlog::default_logger());
     
     app.setAddInstanceCallback([](auto sd) {
         NLOG_DEBUG("will setup face here for {}/{} {}:{}", 
@@ -441,16 +222,34 @@ int main (int argc, char **argv)
     
     app.setup(protocols, params);
 
+    // setup cli
+    auto rootMenu = make_unique<cli::Menu>("cli");
+    rootMenu->Insert("get", { "ndn_name" },
+        [](ostream& os, string name) 
+    {
+        os << "will fetch " << name << endl;
+    },
+        "Fetch NDN generalized object");
+
+    cli::Cli cli(move(rootMenu));
+    cli.ExitAction([&](auto& out) { run = false; });
+
+    cli::LoopScheduler runLoop;
+    cli::CliLocalTerminalSession session(cli, runLoop, cout);
+
+    thread cliThread([&]() {
+        runLoop.Run();
+    });
+
     // main runloop
     while (run)
     {
         app.processEvents();
-        
-        // TODO: face process events here
-        // TODO: folder watch here
-
         this_thread::sleep_for(chrono::milliseconds(5));
     }
+
+    runLoop.Stop();
+    cliThread.join();
 
     NLOG_INFO("shutting down.");
 	return 0;
