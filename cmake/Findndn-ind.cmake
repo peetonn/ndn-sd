@@ -82,7 +82,6 @@ else()
     set(NDNIND_DLL ${NDNIND_DLL_DEBUG})
   endif()
 endif()
-message(${NDNIND_DLL_DEBUG})
 
 find_package_handle_standard_args(ndn-ind REQUIRED_VARS NDNIND_INCLUDE_DIR NDNIND_IMPLIB NDNIND_DLL)
 

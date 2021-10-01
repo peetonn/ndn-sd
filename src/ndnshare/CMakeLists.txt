@@ -3,13 +3,21 @@ cmake_minimum_required(VERSION 3.10)
 set(EXECUTABLE_NAME ndnshare)
 project(${EXECUTABLE_NAME} VERSION 0.0.1)
 
-add_executable(${EXECUTABLE_NAME} main.cpp logging.hpp)
+add_executable(${EXECUTABLE_NAME} main.cpp 
+              logging.hpp
+              key-chain-manager.hpp key-chain-manager.cpp
+              mime.hpp mime.cpp
+              ndnapp.hpp ndnapp.cpp
+              uuid.hpp uuid.cpp)
 
 target_include_directories(${EXECUTABLE_NAME}
                         PRIVATE
                         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
                     )
-
+target_include_directories(${EXECUTABLE_NAME}
+                        SYSTEM PRIVATE
+                        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/thirdparty/cli/include>
+                    )
 target_compile_features(${EXECUTABLE_NAME} PUBLIC cxx_std_17)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in ${CMAKE_CURRENT_BINARY_DIR}/config.hpp)
