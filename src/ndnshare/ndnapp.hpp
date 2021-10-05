@@ -38,6 +38,8 @@ namespace ndnapp
             const ndnsd::NdnSd::AdvertiseParameters& params);
         void processEvents();
 
+        ndntools::MicroForwarder* getMfd() const { return mfd_; }
+
     private:
         std::string appName_;
         std::string instanceId_;

@@ -87,7 +87,7 @@ namespace ndnapp
                     logger_->info("add {}/{} iface {}", sd->getUuid(), sd->getProtocol(), sd->getInterface());
 
                     if (filterInterface_ && discoveredInstances_.count(sd->getUuid()))
-                        logger_->warn("iface filtering is ON: skip duplicate {} on iface {}", sd->getUuid(), sd->getInterface());
+                        logger_->warn("iface filtering: skip duplicate {} on iface {}", sd->getUuid(), sd->getInterface());
                     else
                     {
                         discoveredInstances_.insert(sd->getUuid());
