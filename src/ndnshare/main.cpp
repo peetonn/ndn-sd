@@ -124,6 +124,9 @@ public:
             throw std::runtime_error("failed to register prefix " + prefix_.getName().toUri());
     }
 
+    std::string getRootPath() const { return rootPath_; }
+    std::vector<std::string> getFiles() const;
+
 private:
     bool prefixRegisterFailure_;
     std::string rootPath_;
@@ -137,25 +140,30 @@ bool FilePublisher::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespace,
 {
     assert(nmspc.getName().compare(neededNamespace.getName()) == -1);
     Name fileSuffix = neededNamespace.getName().getSubName(nmspc.getName().size());
+    string fileName = fileSuffix[0].toEscapedString();
     
-    logger_->trace("request for {}", fileSuffix.toUri());
 
-    filesystem::path filePath(rootPath_);
-    filePath /= fileSuffix.toUri();
+    logger_->trace("nmspc: {} needed {}", nmspc.getName().toUri(), neededNamespace.getName().toUri());
+    
+    filesystem::path filePath(rootPath_, filesystem::path::format::native_format);
+    filePath = filePath / fileName; // filesystem::path(fileName, filesystem::path::format::generic_format);
 
     if (filesystem::exists(filePath))
     {
-        Namespace& fileNamespace = nmspc[fileSuffix];
+        Namespace& fileNamespace = nmspc[Name::Component(fileName)];
         MetaInfo fileMeta;
         fileMeta.setFreshnessPeriod(chrono::milliseconds(1000)); // TODO: what freshness to use
         //fileNamespace.setNewDataMetaInfo(fileMeta);
 
         // TODO: this should be refactored for huge files (can't read all into memory)
         ifstream file(filePath, ios::binary | ios::ate);
+        logger_->trace("read {}", filePath.string());
+
         streamsize size = file.tellg();
         file.seekg(0, ios::beg);
         ptr_lib::shared_ptr<vector<uint8_t>> fileContents = ptr_lib::make_shared<vector<uint8_t>>(size);
 
+        logger_->trace("read {} bytes from disk", fileContents->size());
         if (file.read((char*)fileContents->data(), size))
         {
             Blob fileBlob(fileContents, false);
@@ -177,6 +185,19 @@ bool FilePublisher::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespace,
     }
 
     return false;
+}
+
+vector<string> FilePublisher::getFiles() const
+{
+    vector<string> files;
+
+    for (auto const& entry : filesystem::directory_iterator(getRootPath()))
+    {
+        if (entry.is_regular_file())
+            files.push_back(entry.path().filename().string());
+    }
+
+    return files;
 }
 
 static uint8_t DEFAULT_RSA_PUBLIC_KEY_DER[] = {
@@ -344,16 +365,16 @@ int main(int argc, char** argv)
 
         // setup cli
         cli::LoopScheduler sessionLoop;
-        vector<shared_ptr<Namespace>> fetchedObjects;
+        //vector<shared_ptr<Namespace>> fetchedObjects;
 
         auto fetchGObj = [&](const string& name)
         {
             shared_ptr<Namespace> fileObject = make_shared<Namespace>(name);
-            fetchedObjects.push_back(fileObject);
+            //fetchedObjects.push_back(fileObject);
             fileObject->setFace(&face);
 
             //shared_ptr<GeneralizedObjectHandler> gobj = make_shared<GeneralizedObjectHandler>();
-            auto onObject = [&, fileObject](const ptr_lib::shared_ptr<ContentMetaInfoObject>& contentMetaInfo,
+            auto onObject = [&, fileObject, name](const ptr_lib::shared_ptr<ContentMetaInfoObject>& contentMetaInfo,
                 Namespace& objectNamespace)
             {
                 NLOG_INFO("fetched {}: {} bytes, content-type {}", name,
@@ -371,6 +392,31 @@ int main(int argc, char** argv)
             sessionLoop.Post([name, fetchGObj]() { fetchGObj(name); });
         },
             "Fetch NDN generalized object and save as file");
+        rootMenu->Insert("faces",
+            [&](ostream& os)
+        {
+            for (auto& [faceId, faceUri] : app.getMfd()->getFaces())
+            {
+                os << "\t" << faceId << " " << faceUri << endl;
+            }
+        });
+        rootMenu->Insert("routes",
+            [&](ostream& os) 
+        {
+            for (auto& [route, faces] : app.getMfd()->getRoutes())
+            {
+                os << "\t" << route;
+                for (auto fId : faces) os << " " << fId;
+                os << endl;
+            }
+        });
+        rootMenu->Insert("files",
+            [&](ostream& os)
+        {
+            os << "\t" << producer.getRootPath() << ":" << endl;
+            for (auto& f : producer.getFiles())
+                os << "\t\t" << f << endl;
+        });
 
         cli::Cli cli(move(rootMenu));
         cli.ExitAction([&](auto& out) { run = false; });

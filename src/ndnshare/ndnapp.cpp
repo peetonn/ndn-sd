@@ -34,11 +34,10 @@ namespace ndnapp
     {
         try
         {
-            auto udpTransport = ndn::ptr_lib::make_shared<ndn::UdpTransport>();
-            bool res = mfd_->addChannel(udpTransport,
+            auto udpTransport = mfd_->addChannel(
                 ndn::ptr_lib::make_shared<ndn::UdpTransport::ConnectionInfo>("", 0));
 
-            if (!res)
+            if (!udpTransport)
                 logger_->error("failed to add UDP listen channel");
 
             params_.port_ = udpTransport->getBoundPort();
