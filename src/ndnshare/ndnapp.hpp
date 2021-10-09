@@ -50,6 +50,7 @@ namespace ndnapp
         std::vector<ndnsd::Proto> protocols_;
         ndnsd::NdnSd::AdvertiseParameters params_;
         std::vector<std::shared_ptr<ndnsd::NdnSd> > ndnsds_;
+        std::map<std::shared_ptr<const ndnsd::NdnSd>, int> faces_;
         OnInstanceAdd onInstanceAdd_;
         OnInstanceRemove onInstanceRemove_;
 

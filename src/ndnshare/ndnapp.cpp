@@ -199,6 +199,8 @@ fmt::format(fmt::emphasis::bold, "{}", params_.port_)
                     ci = ndn::ptr_lib::make_shared<UdpTransport::ConnectionInfo>(hostname.c_str(), sd->getPort());
 
                 int faceId = mfd_->addFace(uri, t, ci);
+                faces_[sd] = faceId;
+
                 if (mfd_->addRoute(Name(sd->getPrefix()), faceId))
                 {
                     logger_->info("add route {} face {} id {} ", sd->getPrefix(), uri, sd->getUuid());
@@ -217,7 +219,16 @@ fmt::format(fmt::emphasis::bold, "{}", params_.port_)
 
     void App::removeRoute(const shared_ptr<const NdnSd>& sd)
     {
+        auto it = faces_.find(sd);
+        
+        if (it != faces_.end())
+        {
+            mfd_->removeFace(it->second);
 
+            logger_->info("face {} removed for service {}", it->second, it->first->getUuid());
+        }
+        else
+            logger_->warn("remove face error: no face found for discovered service {}", sd->getUuid());
     }
 
 }

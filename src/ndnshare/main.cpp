@@ -391,14 +391,13 @@ int main(int argc, char** argv)
     ndnapp::App app("ndnshare", instanceId, spdlog::default_logger());
 
     app.setAddInstanceCallback([](auto sd) {
-        NLOG_DEBUG("will setup face here for {}/{} {}:{}",
+        /*NLOG_DEBUG("will setup face here for {}/{} {}:{}",
             sd->getUuid(), sd->getProtocol(),
-            sd->getHostname(), sd->getPort());
+            sd->getHostname(), sd->getPort());*/
 
     });
     app.setRemoveInstanceCallback([](auto sd) {
-        // TODO: remove face or leave it?
-        NLOG_DEBUG("will remove face, maybe?");
+        //NLOG_DEBUG("will remove face, maybe?");
     });
 
     app.setup(protocols, params);
