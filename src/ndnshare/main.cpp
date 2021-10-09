@@ -124,6 +124,8 @@ public:
             throw std::runtime_error("failed to register prefix " + prefix_.getName().toUri());
     }
 
+    void fetch(const std::string& prefx);
+
     std::string getRootPath() const { return rootPath_; }
     std::vector<std::string> getFiles() const;
 
@@ -134,6 +136,7 @@ private:
     cnl_cpp::Namespace prefix_;
 
     bool onObjectNeeded(cnl_cpp::Namespace&, cnl_cpp::Namespace& neededNamespace, uint64_t);
+    void writeData(const std::string& fileName, const ndn::Blob& data);
 };
 
 bool FilePublisher::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespace, uint64_t callbackId)
@@ -164,13 +167,22 @@ bool FilePublisher::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespace,
         ptr_lib::shared_ptr<vector<uint8_t>> fileContents = ptr_lib::make_shared<vector<uint8_t>>(size);
 
         logger_->trace("read {} bytes from disk", fileContents->size());
+
+        /*auto logger = logger_;
+        fileNamespace.addOnStateChanged([logger](Namespace& nameSpace, Namespace& changedNamespace, NamespaceState state,
+            uint64_t callbackId) {
+
+            logger->trace("namespace {} state change: {} -- {}", 
+                nameSpace.getName().toUri(), changedNamespace.getName().toUri(), state);
+        });*/
+
         if (file.read((char*)fileContents->data(), size))
         {
             Blob fileBlob(fileContents, false);
             GeneralizedObjectHandler handler;
             handler.setObject(fileNamespace, fileBlob, mime::content_type(filePath.extension().string()));
 
-            logger_->info("published {}", filePath.string());
+            logger_->info("published {}", fileNamespace.getName().toUri());
 
             return true;
         }
@@ -187,6 +199,31 @@ bool FilePublisher::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespace,
     return false;
 }
 
+void FilePublisher::fetch(const std::string& name)
+{
+    shared_ptr<Namespace> fileObject = make_shared<Namespace>(name);
+    fileObject->setFace(prefix_.getFace_());
+
+    //shared_ptr<GeneralizedObjectHandler> gobj = make_shared<GeneralizedObjectHandler>();
+    auto onObject = [&, fileObject, name](const ptr_lib::shared_ptr<ContentMetaInfoObject>& contentMetaInfo,
+        Namespace& objectNamespace)
+    {
+        NLOG_INFO("fetched {}: {} bytes, content-type {}", name,
+            objectNamespace.getBlobObject().size(), contentMetaInfo->getContentType());
+
+        writeData(objectNamespace.getName()[-1].toEscapedString(), objectNamespace.getBlobObject());
+    };
+
+    /*fileObject->addOnStateChanged([](Namespace& nameSpace, Namespace& changedNamespace, NamespaceState state,
+        uint64_t callbackId) {
+
+        NLOG_TRACE("namespace {} state change: {} -- {}",
+            nameSpace.getName().toUri(), changedNamespace.getName().toUri(), state);
+    });*/
+
+    GeneralizedObjectHandler(fileObject.get(), onObject).objectNeeded(true);
+};
+
 vector<string> FilePublisher::getFiles() const
 {
     vector<string> files;
@@ -198,6 +235,26 @@ vector<string> FilePublisher::getFiles() const
     }
 
     return files;
+}
+
+void FilePublisher::writeData(const string& fileName, const ndn::Blob& data)
+{
+    filesystem::path filePath(rootPath_, filesystem::path::format::native_format);
+    filePath = filePath / fileName;
+
+    ofstream wf(filePath.string(), ios::out | ios::binary);
+    if (!wf) {
+        logger_->error("error writing to {}", filePath.string());
+        return ;
+    }
+
+    wf.write((const char*)data.buf(), data.size());
+    wf.close();
+
+    if (!wf.good())
+        logger_->error("error writing to {}: ", filePath.string());
+    else
+        logger_->info("stored at {}", filePath.string());
 }
 
 static uint8_t DEFAULT_RSA_PUBLIC_KEY_DER[] = {
@@ -365,23 +422,6 @@ int main(int argc, char** argv)
 
         // setup cli
         cli::LoopScheduler sessionLoop;
-        //vector<shared_ptr<Namespace>> fetchedObjects;
-
-        auto fetchGObj = [&](const string& name)
-        {
-            shared_ptr<Namespace> fileObject = make_shared<Namespace>(name);
-            //fetchedObjects.push_back(fileObject);
-            fileObject->setFace(&face);
-
-            //shared_ptr<GeneralizedObjectHandler> gobj = make_shared<GeneralizedObjectHandler>();
-            auto onObject = [&, fileObject, name](const ptr_lib::shared_ptr<ContentMetaInfoObject>& contentMetaInfo,
-                Namespace& objectNamespace)
-            {
-                NLOG_INFO("fetched {}: {} bytes, content-type {}", name,
-                    objectNamespace.getBlobObject().size(), contentMetaInfo->getContentType());
-            };
-            GeneralizedObjectHandler(fileObject.get(), onObject).objectNeeded(true);
-        };
 
         auto rootMenu = make_unique<cli::Menu>("cli");
         rootMenu->Insert("get", { "ndn_name" },
@@ -389,7 +429,7 @@ int main(int argc, char** argv)
         {
             os << "will fetch " << name << endl;
 
-            sessionLoop.Post([name, fetchGObj]() { fetchGObj(name); });
+            sessionLoop.Post(std::bind(&FilePublisher::fetch, &producer, name));
         },
             "Fetch NDN generalized object and save as file");
         rootMenu->Insert("faces",
