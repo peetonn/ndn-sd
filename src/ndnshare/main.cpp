@@ -335,6 +335,14 @@ int main(int argc, char** argv)
         },
             "Set log level: trace debug info warn error off"
             );
+        rootMenu->Insert("nodes",
+            [&](ostream& os)
+        {
+            for (auto& sd : app.getDiscoveredNodes())
+                os << "\t" << sd->getFullname() << " ("
+                    << sd->getSubtype() << ") " << sd->getPrefix() << endl;
+        },
+            "Print all discovered nodes");
 
         cli::Cli cli(move(rootMenu));
         cli.ExitAction([&](auto& out) { run = false; });

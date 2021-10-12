@@ -106,6 +106,9 @@ namespace ndnsd
         std::string getHostname() const;
         std::string getFullname() const;
 
+        // returns all discovered services
+        std::vector<std::shared_ptr<ndnsd::NdnSd>> getDiscoveredServices() const;
+
         static std::string getVersion();
 
     private:

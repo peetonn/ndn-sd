@@ -508,6 +508,12 @@ string NdnSd::getVersion()
 	return NDNSD_VERSION;
 }
 
+
+vector<shared_ptr<NdnSd>> NdnSd::getDiscoveredServices() const
+{
+	return pimpl_->getDiscoveredServices();
+}
+
 // Impl helpers
 void NdnSd::Impl::deregister()
 {

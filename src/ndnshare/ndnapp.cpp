@@ -157,6 +157,20 @@ namespace ndnapp
             s->run(1);
     }
 
+    vector<shared_ptr<const ndnsd::NdnSd>>
+    App::getDiscoveredNodes() const
+    {
+        vector<shared_ptr<const ndnsd::NdnSd>> nodes;
+
+        for (auto& sd : ndnsds_)
+        {
+            auto discovered = sd->getDiscoveredServices();
+            nodes.insert(nodes.end(), discovered.begin(), discovered.end());
+        }
+
+        return nodes;
+    }
+
     void App::printAppInfo()
     {
         fmt::print(R"(

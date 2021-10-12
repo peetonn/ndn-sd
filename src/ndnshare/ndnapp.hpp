@@ -39,6 +39,7 @@ namespace ndnapp
         void processEvents();
 
         ndntools::MicroForwarder* getMfd() const { return mfd_; }
+        std::vector<std::shared_ptr<const ndnsd::NdnSd>> getDiscoveredNodes() const;
 
     private:
         std::string appName_;
