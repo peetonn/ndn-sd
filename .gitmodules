@@ -1,3 +1,15 @@
 [submodule "thirdparty/cli"]
 	path = thirdparty/cli
 	url = https://github.com/daniele77/cli.git
+[submodule "thirdparty/ndn-ind"]
+	path = thirdparty/ndn-ind
+	url = https://github.com/remap/ndn-ind.git
+[submodule "thirdparty/cnl-cpp"]
+	path = thirdparty/cnl-cpp
+	url = https://github.com/remap/cnl-cpp.git
+[submodule "thirdparty/docopt.cpp"]
+	path = thirdparty/docopt.cpp
+	url = https://github.com/docopt/docopt.cpp.git
+[submodule "thirdparty/fmt"]
+	path = thirdparty/fmt
+	url = https://github.com/fmtlib/fmt.git
