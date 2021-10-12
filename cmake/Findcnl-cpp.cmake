@@ -94,7 +94,7 @@ find_library(CNLCPP_LIBRARY
     /usr/lib
     /usr/local/lib
     ${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp/lib
-    ${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp/build/cnl-cpp/lib
+    ${CMAKE_SOURCE_DIR}/thirdparty/cnl-cpp/build/lib
 )
 
 find_package_handle_standard_args(cnl-cpp REQUIRED_VARS CNLCPP_INCLUDE_DIR CNLCPP_LIBRARY)

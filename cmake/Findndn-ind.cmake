@@ -94,7 +94,7 @@ find_library(NDNIND_LIBRARY
     /usr/lib
     /usr/local/lib
     ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/lib
-    ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/build/ndn-ind/lib
+    ${CMAKE_SOURCE_DIR}/thirdparty/ndn-ind/build/lib
 )
 
 find_package_handle_standard_args(ndn-ind REQUIRED_VARS NDNIND_INCLUDE_DIR NDNIND_LIBRARY)
