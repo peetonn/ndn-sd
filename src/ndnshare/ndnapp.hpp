@@ -34,7 +34,7 @@ namespace ndnapp
             onInstanceRemove_ = onInstanceRemove;
         }
 
-        void setup(const std::vector<ndnsd::Proto>& protocols,
+        void configure(const std::vector<ndnsd::Proto>& protocols,
             const ndnsd::NdnSd::AdvertiseParameters& params);
         void processEvents();
 

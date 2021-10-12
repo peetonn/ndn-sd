@@ -19,12 +19,10 @@
 #include <ndn-sd/ndn-sd.hpp>
 
 #include "config.hpp"
+#include "fileshare.hpp"
 #include "logging.hpp"
 #include "ndnapp.hpp"
-#include "mime.hpp"
 #include "uuid.hpp"
-
-
 
 using namespace std;
 using namespace ndnsd;
@@ -91,171 +89,6 @@ R"(ndnshare.
 
 vector<Proto> loadProtocols(const map<string, docopt::value>& args);
 NdnSd::AdvertiseParameters loadParameters(const string& instanceId, const map<string, docopt::value>& args);
-
-atomic_bool run = true;
-void signal_handler(int signal)
-{
-	run = !(signal == SIGINT);
-    NLOG_DEBUG("signal caught");
-}
-
-#include "mime.hpp"
-class FilePublisher {
-public:
-    FilePublisher(std::string rootPath, std::string prefix, 
-        ndn::Face *face, ndn::KeyChain* keyChain,
-        std::shared_ptr<spdlog::logger> logger)
-        : rootPath_(rootPath)
-        , prefix_(prefix, keyChain)
-        , prefixRegisterFailure_(false)
-        , logger_(logger)
-    {
-        prefix_.setFace(face, [this](auto prefix) {
-            logger_->error("failed to register prefix {}", prefix->toUri());
-            prefixRegisterFailure_ = true;
-        });
-        prefix_.addOnObjectNeeded(bind(&FilePublisher::onObjectNeeded, this, 
-            std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-    }
-    ~FilePublisher() {}
-
-    void processEvents() {
-        if (prefixRegisterFailure_)
-            throw std::runtime_error("failed to register prefix " + prefix_.getName().toUri());
-    }
-
-    void fetch(const std::string& prefx);
-
-    std::string getRootPath() const { return rootPath_; }
-    std::vector<std::string> getFiles() const;
-
-private:
-    bool prefixRegisterFailure_;
-    std::string rootPath_;
-    std::shared_ptr<spdlog::logger> logger_;
-    cnl_cpp::Namespace prefix_;
-
-    bool onObjectNeeded(cnl_cpp::Namespace&, cnl_cpp::Namespace& neededNamespace, uint64_t);
-    void writeData(const std::string& fileName, const ndn::Blob& data);
-};
-
-bool FilePublisher::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespace, uint64_t callbackId)
-{
-    assert(nmspc.getName().compare(neededNamespace.getName()) == -1);
-    Name fileSuffix = neededNamespace.getName().getSubName(nmspc.getName().size());
-    string fileName = fileSuffix[0].toEscapedString();
-    
-
-    logger_->trace("nmspc: {} needed {}", nmspc.getName().toUri(), neededNamespace.getName().toUri());
-    
-    filesystem::path filePath(rootPath_, filesystem::path::format::native_format);
-    filePath = filePath / fileName; // filesystem::path(fileName, filesystem::path::format::generic_format);
-
-    if (filesystem::exists(filePath))
-    {
-        Namespace& fileNamespace = nmspc[Name::Component(fileName)];
-        MetaInfo fileMeta;
-        fileMeta.setFreshnessPeriod(chrono::milliseconds(1000)); // TODO: what freshness to use
-        //fileNamespace.setNewDataMetaInfo(fileMeta);
-
-        // TODO: this should be refactored for huge files (can't read all into memory)
-        ifstream file(filePath, ios::binary | ios::ate);
-        logger_->trace("read {}", filePath.string());
-
-        streamsize size = file.tellg();
-        file.seekg(0, ios::beg);
-        ptr_lib::shared_ptr<vector<uint8_t>> fileContents = ptr_lib::make_shared<vector<uint8_t>>(size);
-
-        logger_->trace("read {} bytes from disk", fileContents->size());
-
-        /*auto logger = logger_;
-        fileNamespace.addOnStateChanged([logger](Namespace& nameSpace, Namespace& changedNamespace, NamespaceState state,
-            uint64_t callbackId) {
-
-            logger->trace("namespace {} state change: {} -- {}", 
-                nameSpace.getName().toUri(), changedNamespace.getName().toUri(), state);
-        });*/
-
-        if (file.read((char*)fileContents->data(), size))
-        {
-            Blob fileBlob(fileContents, false);
-            GeneralizedObjectHandler handler;
-            handler.setObject(fileNamespace, fileBlob, mime::content_type(filePath.extension().string()));
-
-            logger_->info("published {}", fileNamespace.getName().toUri());
-
-            return true;
-        }
-        else
-        {
-            logger_->error("failed to read file {}", filePath.string());
-        }
-    }
-    else
-    {
-        logger_->warn("file {} does not exist", filePath.string());
-    }
-
-    return false;
-}
-
-void FilePublisher::fetch(const std::string& name)
-{
-    shared_ptr<Namespace> fileObject = make_shared<Namespace>(name);
-    fileObject->setFace(prefix_.getFace_());
-
-    //shared_ptr<GeneralizedObjectHandler> gobj = make_shared<GeneralizedObjectHandler>();
-    auto onObject = [&, fileObject, name](const ptr_lib::shared_ptr<ContentMetaInfoObject>& contentMetaInfo,
-        Namespace& objectNamespace)
-    {
-        NLOG_INFO("fetched {}: {} bytes, content-type {}", name,
-            objectNamespace.getBlobObject().size(), contentMetaInfo->getContentType());
-
-        writeData(objectNamespace.getName()[-1].toEscapedString(), objectNamespace.getBlobObject());
-    };
-
-    /*fileObject->addOnStateChanged([](Namespace& nameSpace, Namespace& changedNamespace, NamespaceState state,
-        uint64_t callbackId) {
-
-        NLOG_TRACE("namespace {} state change: {} -- {}",
-            nameSpace.getName().toUri(), changedNamespace.getName().toUri(), state);
-    });*/
-
-    GeneralizedObjectHandler(fileObject.get(), onObject).objectNeeded(true);
-};
-
-vector<string> FilePublisher::getFiles() const
-{
-    vector<string> files;
-
-    for (auto const& entry : filesystem::directory_iterator(getRootPath()))
-    {
-        if (entry.is_regular_file())
-            files.push_back(entry.path().filename().string());
-    }
-
-    return files;
-}
-
-void FilePublisher::writeData(const string& fileName, const ndn::Blob& data)
-{
-    filesystem::path filePath(rootPath_, filesystem::path::format::native_format);
-    filePath = filePath / fileName;
-
-    ofstream wf(filePath.string(), ios::out | ios::binary);
-    if (!wf) {
-        logger_->error("error writing to {}", filePath.string());
-        return ;
-    }
-
-    wf.write((const char*)data.buf(), data.size());
-    wf.close();
-
-    if (!wf.good())
-        logger_->error("error writing to {}: ", filePath.string());
-    else
-        logger_->info("stored at {}", filePath.string());
-}
 
 static uint8_t DEFAULT_RSA_PUBLIC_KEY_DER[] = {
   0x30, 0x82, 0x01, 0x22, 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01,
@@ -360,10 +193,61 @@ static uint8_t DEFAULT_RSA_PRIVATE_KEY_DER[] = {
   0xcb, 0xea, 0x8f
 };
 
+
+//******************************************************************************
+// callback sink implementation
+// @see https://github.com/gabime/spdlog/wiki/4.-Sinks#implementing-your-own-sink
+
+#include "spdlog/sinks/base_sink.h"
+namespace spdlog
+{
+    namespace ext
+    {
+        typedef std::function<void(const std::string&)> SinkHook;
+
+        template<typename Mutex>
+        class CliFriendlySink : public spdlog::sinks::base_sink <Mutex>
+        {
+        public:
+            CliFriendlySink(cli::CliSession* cli) : cli_(cli) {}
+
+        protected:
+            void sink_it_(const spdlog::details::log_msg& msg) override
+            {
+                printf("\r");
+
+                spdlog::memory_buf_t formatted;
+                spdlog::sinks::base_sink<Mutex>::formatter_->format(msg, formatted);
+                std::cout << fmt::to_string(formatted);
+
+                cli_->Prompt();
+            }
+
+            void flush_() override
+            {
+                std::cout << std::flush;
+            }
+        private:
+            cli::CliSession* cli_;
+        };
+
+        using CliFriendlySinkMt = CliFriendlySink<std::mutex>;
+        using CliFriendlySinkSt = CliFriendlySink<spdlog::details::null_mutex>;
+    }
+}
+
+atomic_bool run = true;
+void signal_handler(int signal)
+{
+    run = !(signal == SIGINT);
+    NLOG_DEBUG("signal caught");
+}
+
 int main(int argc, char** argv)
 {
     signal(SIGINT, signal_handler);
-    spdlog::set_level(spdlog::level::trace);
+    auto mainLogger = spdlog::default_logger();
+    mainLogger->set_level(spdlog::level::trace);
 
     map<string, docopt::value> args;
     try {
@@ -388,19 +272,8 @@ int main(int argc, char** argv)
     vector<Proto> protocols = loadProtocols(args);
     NdnSd::AdvertiseParameters params = loadParameters(instanceId, args);
 
-    ndnapp::App app("ndnshare", instanceId, spdlog::default_logger());
-
-    app.setAddInstanceCallback([](auto sd) {
-        /*NLOG_DEBUG("will setup face here for {}/{} {}:{}",
-            sd->getUuid(), sd->getProtocol(),
-            sd->getHostname(), sd->getPort());*/
-
-    });
-    app.setRemoveInstanceCallback([](auto sd) {
-        //NLOG_DEBUG("will remove face, maybe?");
-    });
-
-    app.setup(protocols, params);
+    ndnapp::App app("ndnshare", instanceId, mainLogger);
+    app.configure(protocols, params);
 
     try
     {
@@ -417,18 +290,16 @@ int main(int argc, char** argv)
             ptr_lib::make_shared<ndntools::MicroForwarderTransport::ConnectionInfo>(app.getMfd()));
         face.setCommandSigningInfo(keyChain, keyChain.getDefaultCertificateName());
 
-        FilePublisher producer(args["<path>"].asString(), params.prefix_, &face, &keyChain, spdlog::default_logger());
+        FileshareClient peer(args["<path>"].asString(), params.prefix_, &face, &keyChain, mainLogger);
 
         // setup cli
         cli::LoopScheduler sessionLoop;
 
-        auto rootMenu = make_unique<cli::Menu>("cli");
-        rootMenu->Insert("get", { "ndn_name" },
+        auto rootMenu = make_unique<cli::Menu>("_");
+        rootMenu->Insert("fetch", { "ndn_name" },
             [&](ostream& os, string name)
         {
-            os << "will fetch " << name << endl;
-
-            sessionLoop.Post(std::bind(&FilePublisher::fetch, &producer, name));
+            sessionLoop.Post(std::bind(&FileshareClient::fetch, &peer, name));
         },
             "Fetch NDN generalized object and save as file");
         rootMenu->Insert("faces",
@@ -452,16 +323,27 @@ int main(int argc, char** argv)
         rootMenu->Insert("files",
             [&](ostream& os)
         {
-            os << "\t" << producer.getRootPath() << ":" << endl;
-            for (auto& f : producer.getFiles())
+            os << "\t" << peer.getRootPath() << ":" << endl;
+            for (auto& f : peer.getFilesList())
                 os << "\t\t" << f << endl;
         });
+        rootMenu->Insert("log", { "level" },
+            [&](ostream& os, string llevel) 
+        {
+            mainLogger->set_level(spdlog::level::from_str(llevel));
+            os << "set log level " << llevel << endl;
+        },
+            "Set log level: trace debug info warn error off"
+            );
 
         cli::Cli cli(move(rootMenu));
         cli.ExitAction([&](auto& out) { run = false; });
         
         cli::LoopScheduler runLoop;
         cli::CliLocalTerminalSession session(cli, runLoop, cout);
+        
+        mainLogger->sinks().clear();
+        mainLogger->sinks().push_back(make_shared<spdlog::ext::CliFriendlySinkMt>(&session));
 
         thread cliThread([&]() {
             while (run)
@@ -482,7 +364,7 @@ int main(int argc, char** argv)
             try
             {
                 app.processEvents();
-                producer.processEvents();
+                peer.processEvents();
             }
             catch (exception& e)
             {

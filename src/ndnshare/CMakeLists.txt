@@ -8,6 +8,7 @@ add_executable(${EXECUTABLE_NAME} main.cpp
               key-chain-manager.hpp key-chain-manager.cpp
               mime.hpp mime.cpp
               ndnapp.hpp ndnapp.cpp
+              fileshare.hpp fileshare.cpp
               uuid.hpp uuid.cpp)
 
 target_include_directories(${EXECUTABLE_NAME}

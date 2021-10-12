@@ -18,7 +18,7 @@ using namespace ndnsd;
 namespace ndnapp
 {
 
-    void App::setup(const vector<Proto>& protocols, const NdnSd::AdvertiseParameters& params)
+    void App::configure(const vector<Proto>& protocols, const NdnSd::AdvertiseParameters& params)
     {
         protocols_ = protocols;
         params_ = params;
