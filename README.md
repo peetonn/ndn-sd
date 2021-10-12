@@ -104,3 +104,19 @@ make && make install
 cmake .. -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake
 ```
 3. Open Visual Studio solution file and build solution.
+
+
+# How To Use
+TBD
+
+## ndn-sd
+
+## ndnshare
+
+Once compiled, run app as follows (certificates are TBD):
+```
+bin/ndnshare <path_to_folder> <prefix> --cert=some.cert
+```
+
+See default output for usage.
+
