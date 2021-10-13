@@ -10,7 +10,6 @@
 #include "logging.hpp"
 #include "mime.hpp"
 
-
 using namespace std;
 using namespace ndn;
 using namespace cnl_cpp;
@@ -88,24 +87,49 @@ bool FileshareClient::onObjectNeeded(Namespace& nmspc, Namespace& neededNamespac
 
 void FileshareClient::fetch(const std::string& name)
 {
+    typedef struct _FetchProgress {
+        int totalSegments_ = 0;
+        int receviedCount_ = 0;
+        int lastReceviedNo_ = 0;
+    } FetchProgress;
+
+    auto fetchProgress = make_shared<FetchProgress>();
     shared_ptr<Namespace> fileObject = make_shared<Namespace>(name);
     fileObject->setFace(prefix_.getFace_());
 
-    auto onObject = [&, fileObject, name](const ptr_lib::shared_ptr<ContentMetaInfoObject>& contentMetaInfo,
+    auto onObject = [&, fileObject, fetchProgress, name](const ptr_lib::shared_ptr<ContentMetaInfoObject>& contentMetaInfo,
         Namespace& objectNamespace)
     {
-        logger_->info("fetched {}: {} bytes, content-type {}", name,
-            objectNamespace.getBlobObject().size(), contentMetaInfo->getContentType());
+        logger_->info("fetched {}: {} bytes, {} segments, content-type {}", name,
+            objectNamespace.getBlobObject().size(), fetchProgress->totalSegments_+1, contentMetaInfo->getContentType());
 
         writeData(objectNamespace.getName()[-1].toEscapedString(), objectNamespace.getBlobObject());
     };
 
-    /*fileObject->addOnStateChanged([](Namespace& nameSpace, Namespace& changedNamespace, NamespaceState state,
-        uint64_t callbackId) {
+    auto logger = logger_;
+    fileObject->addOnStateChanged([logger, fetchProgress](Namespace& nameSpace, Namespace& changedNamespace, NamespaceState state,
+        uint64_t callbackId) 
+    {
+        if (changedNamespace.getName()[-1].isSegment())
+        {
+            fetchProgress->lastReceviedNo_ = changedNamespace.getName()[-1].toSegment();
 
-        NLOG_TRACE("namespace {} state change: {} -- {}",
-            nameSpace.getName().toUri(), changedNamespace.getName().toUri(), state);
-    });*/
+            if (state == NamespaceState_DATA_RECEIVED)
+            {
+                fetchProgress->receviedCount_ += 1;
+
+                if (changedNamespace.getName()[-1].toSegment() == 0)
+                {
+                    fetchProgress->totalSegments_ = changedNamespace.getData()->getMetaInfo().getFinalBlockID().toSegment() + 1;
+                }
+
+                if (fetchProgress->totalSegments_)
+                {
+                    printf("\r>>> fetching %d\\%d", fetchProgress->receviedCount_, fetchProgress->totalSegments_);
+                }
+            }
+        }        
+    });
 
     logger_->info("fetching {}...", name);
     GeneralizedObjectHandler(fileObject.get(), onObject).objectNeeded(true);

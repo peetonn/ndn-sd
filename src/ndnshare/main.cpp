@@ -52,8 +52,6 @@ R"(ndnshare.
 
     Usage:
       ndnshare <path> <prefix> --cert=<certificate> [--id=<node_id>] [--anchor=<trust_anchor>] [--logfile=<log_file>] [--tcp | --udp]
-      ndnshare get <prefix>
-      ndnshare browse
       ndnshare (-h | --help)
       ndnshare --version
 
@@ -67,25 +65,6 @@ R"(ndnshare.
       -t, --tcp                 Advertise over Bonjour as TCP-only service.
       -u, --udp                 Advertise over Bonjour as UDP-only service.
 )";
-//--logfile = <file>          Log file(defaults to stdout if not provided).
-//--quiet                   No output mode.
-//R"(Naval Fate.
-//
-//    Usage:
-//      naval_fate ship new <name>...
-//      naval_fate ship <name> move <x> <y> [--speed=<kn>]
-//      naval_fate ship shoot <x> <y>
-//      naval_fate mine (set|remove) <x> <y> [--moored | --drifting]
-//      naval_fate (-h | --help)
-//      naval_fate --version
-//
-//    Options:
-//      -h --help     Show this screen.
-//      --version     Show version.
-//      --speed=<kn>  Speed in knots [default: 10].
-//      --moored      Moored (anchored) mine.
-//      --drifting    Drifting mine.
-//)";
 
 vector<Proto> loadProtocols(const map<string, docopt::value>& args);
 NdnSd::AdvertiseParameters loadParameters(const string& instanceId, const map<string, docopt::value>& args);
@@ -275,6 +254,7 @@ int main(int argc, char** argv)
 
     try
     {
+        Interest::setDefaultCanBePrefix(true);
         // setup producer
         KeyChain keyChain; // ("pib-memory:", "tpm-memory:");
         keyChain.createIdentityV2(Name(params.prefix_));
