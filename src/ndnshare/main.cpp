@@ -262,9 +262,7 @@ int main(int argc, char** argv)
 
 #if 0
     for (auto const& arg : args) {
-        fmt::print("{:>40}: {}\n",
-            fmt::format(fg(fmt::color::crimson) | fmt::emphasis::bold, arg.first),
-            arg.second);
+        cout << arg.first << "  " << arg.second << endl;
     }
 #endif
 
@@ -390,13 +388,14 @@ int main(int argc, char** argv)
 
         runLoop.Stop();
         cliThread.join();
+
+        NLOG_INFO("shutting down.");
     }
     catch (exception& e)
     {
         NLOG_ERROR("caught exception {}", e.what());
     }
 
-    NLOG_INFO("shutting down.");
 	return 0;
 }
 
@@ -412,9 +411,9 @@ vector<Proto> loadProtocols(const map<string, docopt::value>& args)
     }
     else
     {
-        if (args.at("--tcp"))
+        if (args.at("--tcp").asBool())
             protocols.push_back(Proto::TCP);
-        if (args.at("--udp"))
+        if (args.at("--udp").asBool())
             protocols.push_back(Proto::UDP);
     }
     return protocols;

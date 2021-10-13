@@ -32,24 +32,31 @@ namespace ndnapp
 
     void App::setupMicroforwarder()
     {
-        try
+        for (auto p : protocols_)
         {
-            auto udpTransport = mfd_->addChannel(
-                ndn::ptr_lib::make_shared<ndn::UdpTransport::ConnectionInfo>("", 0));
+            try
+            {
+                ptr_lib::shared_ptr<const Transport> t;
 
-            if (!udpTransport)
-                logger_->error("failed to add UDP listen channel");
+                if (p == Proto::UDP)
+                    t = mfd_->addChannel(
+                        ndn::ptr_lib::make_shared<ndn::UdpTransport::ConnectionInfo>("", 0));
+                if (p == Proto::TCP)
+                    t = mfd_->addChannel(
+                        ndn::ptr_lib::make_shared<ndn::TcpTransport::ConnectionInfo>("", 0));
 
-            params_.port_ = udpTransport->getBoundPort();
-
-            // TODO: remove this in production
-            protocols_.clear();
-            protocols_.push_back(Proto::UDP);
-        }
-        catch (exception& e)
-        {
-            logger_->error("caught exception setting up microforwarder: {}", e.what());
-            throw e;
+                if (!t)
+                    logger_->error("failed to add UDP listen channel");
+                else
+                {
+                    protocolPort_[p] = t->getBoundPort();
+                }
+            }
+            catch (exception& e)
+            {
+                logger_->error("caught exception setting up microforwarder: {}", e.what());
+                throw e;
+            }
         }
     }
 
@@ -64,6 +71,8 @@ namespace ndnapp
 
             if (find(protocols_.begin(), protocols_.end(), p) != protocols_.end())
             {
+                prm.port_ = protocolPort_[p];
+
                 s->announce(prm,
                     [s, this](void*)
                 {
@@ -83,12 +92,12 @@ namespace ndnapp
             {
                 if (a == Announcement::Added)
                 {
-                    logger_->info("add {}/{} iface {}", sd->getUuid(), sd->getProtocol(), sd->getInterface());
-
                     if (filterInterface_ && discoveredInstances_.count(sd->getUuid()))
                         logger_->warn("iface filtering: skip duplicate {} on iface {}", sd->getUuid(), sd->getInterface());
                     else
                     {
+                        logger_->info("add {}/{} iface {}", sd->getUuid(), sd->getProtocol(), sd->getInterface());
+
                         discoveredInstances_.insert(sd->getUuid());
 
                         s->resolve(sd,
@@ -178,14 +187,14 @@ namespace ndnapp
         instance id {}
         announce NDN service: {}, subtype {}
         prefix {}
-        listen port {}
+        listen ports {}
 
 )",
 appName_,
 fmt::format(fmt::emphasis::bold, "{}", instanceId_),
 fmt::format(fmt::emphasis::bold, "{}", protocols_), params_.subtype_,
 fmt::format(fmt::emphasis::bold, "{}", params_.prefix_),
-fmt::format(fmt::emphasis::bold, "{}", params_.port_)
+fmt::format(fmt::emphasis::bold, "{}", protocolPort_)
 );
     }
 

@@ -49,9 +49,11 @@ namespace ndnapp
         std::set<std::string> discoveredInstances_;
         ndntools::MicroForwarder* mfd_;
         std::vector<ndnsd::Proto> protocols_;
+        std::map<ndnsd::Proto, int> protocolPort_;
         ndnsd::NdnSd::AdvertiseParameters params_;
         std::vector<std::shared_ptr<ndnsd::NdnSd> > ndnsds_;
         std::map<std::shared_ptr<const ndnsd::NdnSd>, int> faces_;
+
         OnInstanceAdd onInstanceAdd_;
         OnInstanceRemove onInstanceRemove_;
 
