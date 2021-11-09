@@ -73,22 +73,12 @@ KeyChainManager::createKeyChain(string storagePath)
 	{
 		string privateKeysPath = string(storagePath) + "/" + string(PrivateDb);
 
-#if SECURITY_V1
-        string databaseFilePath = string(storagePath) + "/" + string(PublicDb);
-		shared_ptr<IdentityStorage> identityStorage = make_shared<BasicIdentityStorage>(databaseFilePath);
-		shared_ptr<IdentityManager> identityManager = make_shared<IdentityManager>(identityStorage,
-			make_shared<FilePrivateKeyStorage>(privateKeysPath));
-		shared_ptr<PolicyManager> policyManager = make_shared<SelfVerifyPolicyManager>(identityStorage.get());
-
-		keyChain = make_shared<KeyChain>(identityManager, policyManager);
-#else
         string databaseFilePath = string(storagePath);
         shared_ptr<PibSqlite3> pib = make_shared<PibSqlite3>(databaseFilePath);
         // pib->setTpmLocator();
         shared_ptr<TpmBackEndFile> tpm = make_shared<TpmBackEndFile>(privateKeysPath);
 
         keyChain = make_shared<KeyChain>(pib, tpm);
-#endif
 	}
 	else
 	{
@@ -98,17 +88,17 @@ KeyChainManager::createKeyChain(string storagePath)
 	return keyChain;
 }
 
-KeyChainManager::KeyChainManager(shared_ptr<KeyChain> keyChain,
-                    const string& identityName,
-                    const string& instanceName,
-                    const string& configPolicy,
-                    unsigned int instanceCertLifetime):
-defaultKeyChain_(keyChain),
-signingIdentity_(identityName),
-instanceName_(instanceName),
-configPolicy_(configPolicy),
-runTime_(instanceCertLifetime)
-{
+//KeyChainManager::KeyChainManager(shared_ptr<KeyChain> keyChain,
+//                    const string& identityName,
+//                    const string& instanceName,
+//                    const string& configPolicy,
+//                    unsigned int instanceCertLifetime):
+//defaultKeyChain_(keyChain),
+//signingIdentity_(identityName),
+//instanceName_(instanceName),
+//configPolicy_(configPolicy),
+//runTime_(instanceCertLifetime)
+//{
 	//if (configPolicy != "")
 	//{
  //       getModuleLogger()->info("Setting up file-based policy manager from {}", configPolicy);
@@ -126,12 +116,45 @@ runTime_(instanceCertLifetime)
 	//}
 
 	//setupInstanceKeyChain();
+//}
+
+KeyChainManager::KeyChainManager(ndn::Face* face, ndn::KeyChain* keyChain)
+	: face_(face)
+	, defaultKeyChain_(keyChain)
+	, instanceKeyChain_(make_shared<KeyChain>("pib-memory:", "tpm-memory:"))
+{
+}
+
+shared_ptr<CertificateV2> 
+KeyChainManager::generateInstanceIdentity(const string& identityName,
+	const string& signingIdentityName, chrono::seconds lifetime)
+{
+	auto signingIdentity = defaultKeyChain_->getPib().getIdentity(Name(signingIdentityName));
+	auto instanceCertificate = createSignedIdentity(Name(identityName),
+		signingIdentity->getDefaultKey(), instanceKeyChain_.get(), lifetime);
+
+	return instanceCertificate;
+}
+
+shared_ptr<CertificateV2> 
+KeyChainManager::generateInstanceIdentity(const string& identityName,
+	const SafeBag& identity, const string& password, chrono::seconds lifetime)
+{
+	instanceKeyChain_->importSafeBag(identity, (const uint8_t*)password.c_str(),
+		password.size());
+
+	CertificateV2 signingCert(*identity.getCertificate());
+	auto signingIdentity = instanceKeyChain_->getPib().getIdentity(signingCert.getIdentity());
+	auto instanceCertificate = createSignedIdentity(Name(identityName), 
+		signingIdentity->getDefaultKey(), instanceKeyChain_.get(), lifetime);
+
+	return instanceCertificate;
 }
 
 //******************************************************************************
 void KeyChainManager::setupDefaultKeyChain()
 {
-    defaultKeyChain_ = make_shared<KeyChain>();
+    //defaultKeyChain_ = make_shared<KeyChain>();
 }
 
 void KeyChainManager::setupInstanceKeyChain()
@@ -270,3 +293,28 @@ void KeyChainManager::checkExists(const string& file)
         throw runtime_error(ss.str());
     }
 }
+
+shared_ptr<CertificateV2> KeyChainManager::createSignedIdentity(const Name& identityName, const shared_ptr<PibKey>& signingKey, 
+	KeyChain* storeKeyChain, chrono::seconds validity) 
+{
+	auto now = chrono::system_clock::now();
+	chrono::duration<double> sec = now.time_since_epoch();
+
+	auto pibId = storeKeyChain->createIdentityV2(identityName);
+	auto idKey = pibId->getDefaultKey();
+	auto certName = Name(idKey->getName())
+		.append(signingKey->getDefaultCertificate()->getIssuerId())
+		.appendVersion((uint64_t)(sec.count() * 1000));
+	shared_ptr<CertificateV2> cert = make_shared<CertificateV2>();
+
+	cert->setName(certName);
+	cert->getMetaInfo().setType(ndn_ContentType_KEY);
+	cert->setContent(idKey->getPublicKey());
+
+	SigningInfo signingParams(signingKey);
+	signingParams.setValidityPeriod(ValidityPeriod(now, now + validity));
+	storeKeyChain->sign(*cert, signingParams);
+	storeKeyChain->addCertificate(*idKey, *cert);
+
+	return cert;
+};

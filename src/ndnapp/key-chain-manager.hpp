@@ -21,10 +21,12 @@
 #ifndef __keychain_manager_hpp__
 #define __keychain_manager_hpp__
 
+#include <chrono>
 #include <memory>
 #include <string>
 
 namespace ndn {
+    class CertificateV2;
     class Face;
     class KeyChain;
     class PolicyManager;
@@ -32,7 +34,9 @@ namespace ndn {
     class Name;
     class IdentityStorage;
     class PrivateKeyStorage;
+    class PibKey;
     class MemoryContentCache;
+    class SafeBag;
 }
 
 namespace ndnapp
@@ -41,22 +45,31 @@ namespace helpers
 {
     class KeyChainManager {
     public:
-        KeyChainManager(std::shared_ptr<ndn::KeyChain> keyChain,
+        /*KeyChainManager(std::shared_ptr<ndn::KeyChain> keyChain,
                         const std::string& identityName,
                         const std::string& instanceName,
                         const std::string& configPolicy,
-                        unsigned int instanceCertLifetime);
+                        unsigned int instanceCertLifetime);*/
+
+        KeyChainManager(ndn::Face* face, ndn::KeyChain* keyChain);
         ~KeyChainManager() {}
+
+        std::shared_ptr<ndn::CertificateV2> generateInstanceIdentity(const std::string& identityName,
+            const std::string& signingIdentityName, std::chrono::seconds lifetime = std::chrono::hours(1));
+
+        std::shared_ptr<ndn::CertificateV2> generateInstanceIdentity(const std::string& identityName,
+            const ndn::SafeBag& identity, const std::string& password = "",
+            std::chrono::seconds lifetime = std::chrono::hours(1));
         
-        std::shared_ptr<ndn::KeyChain> defaultKeyChain() { return defaultKeyChain_; }
-        std::shared_ptr<ndn::KeyChain> instanceKeyChain() { return instanceKeyChain_; }
-        std::string instancePrefix() const { return instanceIdentity_; }
+        //std::shared_ptr<ndn::KeyChain> defaultKeyChain() { return defaultKeyChain_; }
+        //std::shared_ptr<ndn::KeyChain> instanceKeyChain() { return instanceKeyChain_; }
+        //std::string instancePrefix() const { return instanceIdentity_; }
         
         const std::shared_ptr<ndn::Data> instanceCertificate() const
         { return instanceCert_; }
         
-        const std::shared_ptr<ndn::Data> signingIdentityCertificate() const
-        { return signingCert_; }
+        /*const std::shared_ptr<ndn::Data> signingIdentityCertificate() const
+        { return signingCert_; }*/
         
         // Will register prefixes for serving instance and signing certificates.
         // Maintains memory content cache for storing certificates.
@@ -81,10 +94,14 @@ namespace helpers
         unsigned int runTime_;
         
         std::shared_ptr<ndn::PolicyManager> configPolicyManager_;
-        std::shared_ptr<ndn::KeyChain> defaultKeyChain_, instanceKeyChain_;
+        
         std::shared_ptr<ndn::Data> instanceCert_, signingCert_;
         std::shared_ptr<ndn::IdentityStorage> identityStorage_;
         std::shared_ptr<ndn::PrivateKeyStorage> privateKeyStorage_;
+
+        ndn::Face* face_;
+        ndn::KeyChain* defaultKeyChain_;
+        std::shared_ptr<ndn::KeyChain> instanceKeyChain_;
         
         void setupDefaultKeyChain();
         void setupInstanceKeyChain();
@@ -94,6 +111,10 @@ namespace helpers
         void createInstanceIdentity();
         void createInstanceIdentityV2();
         void checkExists(const std::string&);
+
+        std::shared_ptr<ndn::CertificateV2>  createSignedIdentity(const ndn::Name& identityName, 
+            const std::shared_ptr<ndn::PibKey>& signingKey, ndn::KeyChain* storeKeyChain, 
+            std::chrono::seconds validity);
     };
 
 }

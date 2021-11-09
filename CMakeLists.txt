@@ -18,5 +18,6 @@ endif()
 include(CheckIncludeFiles)
 
 add_subdirectory(src/ndn-sd)
+add_subdirectory(src/ndnapp)
 add_subdirectory(src/ndnshare)
 add_subdirectory(test)

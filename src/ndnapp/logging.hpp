@@ -1,7 +1,11 @@
 #ifndef __logging_hpp__
 #define __logging_hpp__
 
-#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG
+#if defined(NDEBUG) || defined(_DEBUG) || defined(DEBUG)
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#else
+#define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_INFO
+#endif
 
 #include <spdlog/spdlog.h>
 #define NLOG_TRACE SPDLOG_TRACE

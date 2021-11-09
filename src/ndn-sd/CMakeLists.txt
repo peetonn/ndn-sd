@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 set(LIBRARY_NAME ndn-sd)
-project(${LIBRARY_NAME} VERSION 1.0.0)
+project(${LIBRARY_NAME} VERSION 0.0.1)
 
 
 set(SOURCES ndn-sd.cpp
