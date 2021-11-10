@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 set(LIBRARY_NAME ndnapp)
 
 set(SOURCES logging.hpp
-            key-chain-manager.hpp key-chain-manager.cpp
+            identity-manager.hpp identity-manager.cpp
             mime.hpp mime.cpp
             ndnapp.hpp ndnapp.cpp
             uuid.hpp uuid.cpp)

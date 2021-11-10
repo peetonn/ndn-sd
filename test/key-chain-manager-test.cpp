@@ -9,7 +9,7 @@
 #include <ndn-ind-tools/micro-forwarder/micro-forwarder.hpp>
 #include <ndn-ind-tools/micro-forwarder/micro-forwarder-transport.hpp>
 
-#include "key-chain-manager.hpp"
+#include "identity-manager.hpp"
 
 using namespace std;
 using namespace ndn;
@@ -18,6 +18,11 @@ using namespace ndnapp::helpers;
 
 SafeBag loadSafeBag(string fileName);
 
+TEST_CASE("IdentityManager default constructors")
+{
+}
+
+#if 0
 TEST_CASE( "KeyChainManager generate instance identities", "[inst-id]" )
 {
 	GIVEN("initialized keychain manager") 
@@ -36,7 +41,7 @@ TEST_CASE( "KeyChainManager generate instance identities", "[inst-id]" )
 			string idName = "/test-identity";
 
 			REQUIRE_NOTHROW(
-				instanceCert = kcm.generateInstanceIdentity(idName, sb, safeBagPassword)
+				instanceCert = kcm.generateSignedIdentity(idName, sb, safeBagPassword)
 			);
 
 			THEN("generate certificate is valid")
@@ -54,7 +59,7 @@ TEST_CASE( "KeyChainManager generate instance identities", "[inst-id]" )
 			string idName = "/test-identity";
 
 			REQUIRE_NOTHROW(
-				instanceCert = kcm.generateInstanceIdentity(idName, "/test-signing-id")
+				instanceCert = kcm.generateSignedIdentity(idName, "/test-signing-id")
 			);
 
 			THEN("identity and certificate are created")
@@ -63,9 +68,60 @@ TEST_CASE( "KeyChainManager generate instance identities", "[inst-id]" )
 				REQUIRE(instanceCert->isValid());
 			}
 		}
+
+		WHEN("try to generate signed identity and store in custom keychain")
+		{
+			KeyChain kc2("pib-memory:", "tpm-memory:"); // use mem keychain to avoid polluting system keychain
+			kc.createIdentityV2("/test-signing-id");
+
+			shared_ptr<CertificateV2> instanceCert;
+			string idName = "/test-identity";
+
+			REQUIRE_THROWS(
+				kc2.getDefaultIdentity()
+			);
+			REQUIRE_NOTHROW(
+				instanceCert = kcm.generateSignedIdentity(idName, "/test-signing-id", &kc2)
+			);
+
+			THEN("identity and certificate are created")
+			{
+				REQUIRE(instanceCert.get() != nullptr);
+				REQUIRE(instanceCert->isValid());
+
+				REQUIRE(kc2.getDefaultIdentity().toUri() == idName);
+				REQUIRE(kc2.getPib().getIdentity(idName).get() != nullptr);
+			}
+		}
+
+		WHEN("try to generate signed identity and store in custom keychain (using SafeBag)")
+		{
+			KeyChain kc2("pib-memory:", "tpm-memory:"); // use mem keychain to avoid polluting system keychain
+			string encryptedSafeBag = "data/encrypted.safebag";
+			string safeBagPassword = "0000";
+			SafeBag sb = loadSafeBag(encryptedSafeBag);
+			shared_ptr<CertificateV2> instanceCert;
+			string idName = "/test-identity";
+
+			REQUIRE_THROWS(
+				kc2.getDefaultIdentity()
+			);
+			REQUIRE_NOTHROW(
+				instanceCert = kcm.generateSignedIdentity(idName, sb, safeBagPassword, &kc2)
+			);
+
+			THEN("new identity is stored in custom keychain")
+			{
+				REQUIRE(instanceCert.get() != nullptr);
+				REQUIRE(instanceCert->isValid());
+
+				REQUIRE(kc2.getDefaultIdentity().toUri() == idName);
+				REQUIRE(kc2.getPib().getIdentity(idName).get() != nullptr);
+			}
+		}
 	}
 }
-
+#endif
 SafeBag loadSafeBag(string fileName)
 {
 	string curDir = filesystem::current_path().string();
